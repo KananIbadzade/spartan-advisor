@@ -1,0 +1,134 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* SJSU Brand Colors */
+    --background: 0 0% 100%;
+    --foreground: 210 45% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 210 45% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 45% 15%;
+
+    /* Spartan Blue - Primary brand color */
+    --primary: 207 100% 32%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 207 100% 45%;
+
+    /* SJSU Gold - Accent color */
+    --secondary: 43 90% 54%;
+    --secondary-foreground: 210 45% 15%;
+
+    --muted: 210 20% 96%;
+    --muted-foreground: 210 15% 45%;
+
+    /* Success green for approvals */
+    --accent: 142 76% 36%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Destructive for declines */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Pending/warning state */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 210 20% 90%;
+    --input: 210 20% 90%;
+    --ring: 207 100% 32%;
+
+    --radius: 0.75rem;
+
+    /* Custom gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
+    --gradient-gold: linear-gradient(135deg, hsl(var(--secondary)), hsl(43 90% 62%));
+    --gradient-hero: linear-gradient(180deg, hsl(var(--primary)) 0%, hsl(207 100% 25%) 100%);
+
+    /* Shadows */
+    --shadow-soft: 0 2px 8px -2px hsl(var(--primary) / 0.1);
+    --shadow-card: 0 4px 12px -2px hsl(var(--primary) / 0.12);
+    --shadow-elevated: 0 8px 24px -4px hsl(var(--primary) / 0.15);
+
+    /* Transitions */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 210 45% 15%;
+    --sidebar-primary: 207 100% 32%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 20% 96%;
+    --sidebar-accent-foreground: 210 45% 15%;
+    --sidebar-border: 210 20% 90%;
+    --sidebar-ring: 207 100% 32%;
+  }
+
+  .dark {
+    --background: 210 45% 10%;
+    --foreground: 0 0% 98%;
+
+    --card: 210 40% 12%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 210 40% 12%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 207 100% 45%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 207 100% 55%;
+
+    --secondary: 43 90% 60%;
+    --secondary-foreground: 210 45% 10%;
+
+    --muted: 210 40% 18%;
+    --muted-foreground: 210 15% 65%;
+
+    --accent: 142 76% 40%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 210 40% 20%;
+    --input: 210 40% 20%;
+    --ring: 207 100% 45%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
+    --gradient-gold: linear-gradient(135deg, hsl(var(--secondary)), hsl(43 90% 68%));
+    --gradient-hero: linear-gradient(180deg, hsl(var(--primary)) 0%, hsl(207 100% 35%) 100%);
+
+    --shadow-soft: 0 2px 8px -2px hsl(0 0% 0% / 0.3);
+    --shadow-card: 0 4px 12px -2px hsl(0 0% 0% / 0.4);
+    --shadow-elevated: 0 8px 24px -4px hsl(0 0% 0% / 0.5);
+
+    --sidebar-background: 210 45% 8%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 207 100% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 40% 15%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 210 40% 18%;
+    --sidebar-ring: 207 100% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
