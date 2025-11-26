@@ -25,7 +25,7 @@ This project is built with:
 - Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
 
 ### Installation
-- NOTE: before running the server an environment must be created, <br> please check out env.example for reference on how to create this
+- NOTE: before running the server an environment must be created, please check out env.example for reference on how to create this
 
 ```sh
 # Clone the repository
