@@ -56,7 +56,7 @@ CREATE POLICY "Advisors can delete their own notes"
 
 CREATE POLICY "Admins can manage all notes"
   ON public.advisor_notes FOR ALL
-  USING (public.has_active_role(auth.uid(), 'admin'));
+  USING (public.has_role(auth.uid(), 'admin'));
 
 -- RLS Policies for advisor_suggestions
 CREATE POLICY "Advisors can view suggestions they created"
@@ -81,14 +81,9 @@ CREATE POLICY "Advisors can update their own suggestions"
   ON public.advisor_suggestions FOR UPDATE
   USING (auth.uid() = advisor_id);
 
-CREATE POLICY "Students can update status of suggestions for them"
+CREATE POLICY "Students can update suggestions for them"
   ON public.advisor_suggestions FOR UPDATE
-  USING (
-    auth.uid() = student_id AND
-    -- Students can only update the status field
-    (OLD.advisor_id, OLD.student_id, OLD.course_id, OLD.content, OLD.created_at) =
-    (NEW.advisor_id, NEW.student_id, NEW.course_id, NEW.content, NEW.created_at)
-  );
+  USING (auth.uid() = student_id);
 
 CREATE POLICY "Advisors can delete their own suggestions"
   ON public.advisor_suggestions FOR DELETE
@@ -96,7 +91,7 @@ CREATE POLICY "Advisors can delete their own suggestions"
 
 CREATE POLICY "Admins can manage all suggestions"
   ON public.advisor_suggestions FOR ALL
-  USING (public.has_active_role(auth.uid(), 'admin'));
+  USING (public.has_role(auth.uid(), 'admin'));
 
 -- Add triggers for updated_at
 CREATE TRIGGER update_advisor_notes_updated_at
