@@ -13,6 +13,7 @@ import { DndContext, DragEndEvent, DragOverlay, useSensor, useSensors, PointerSe
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { z } from 'zod';
+import { ChatbotWidget } from '@/components/ChatbotWidget';
 
 const planCourseSchema = z.object({
   term: z.enum(['Fall', 'Spring', 'Summer'], {
@@ -529,6 +530,7 @@ const Planner = () => {
           </DndContext>
         )}
       </main>
+      <ChatbotWidget />
     </div>
   );
 };
