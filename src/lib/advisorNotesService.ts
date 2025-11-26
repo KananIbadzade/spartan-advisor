@@ -70,3 +70,24 @@ export const getAdvisorNotes = async (studentId: string): Promise<AdvisorNote[]>
 
   return notes || [];
 };
+
+export const getNotesForAdvisor = async (): Promise<AdvisorNote[]> => {
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    throw new Error('You must be logged in to view notes');
+  }
+
+  const { data: notes, error: notesError } = await supabase
+    .from('advisor_notes')
+    .select('id, advisor_id, student_id, content, created_at, updated_at')
+    .eq('advisor_id', user.id)
+    .order('created_at', { ascending: false });
+
+  if (notesError) {
+    console.error('Database error:', notesError);
+    throw new Error('Failed to fetch notes');
+  }
+
+  return notes || [];
+};
