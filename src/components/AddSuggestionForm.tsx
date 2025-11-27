@@ -63,21 +63,55 @@ export const AddSuggestionForm: React.FC<AddSuggestionFormProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validation
+    // Enhanced Validation
     if (!selectedCourseId) {
       setError('Please select a course');
+      return;
+    }
+
+    if (!studentId) {
+      setError('Student ID is required');
+      return;
+    }
+
+    const trimmedContent = content.trim();
+
+    // Optional content validation (if provided)
+    if (trimmedContent && trimmedContent.length > 1000) {
+      setError('Reason/notes cannot exceed 1000 characters');
+      return;
+    }
+
+    if (trimmedContent && trimmedContent.length < 5) {
+      setError('If providing a reason, please write at least 5 characters');
       return;
     }
 
     try {
       setIsSubmitting(true);
       setError(null);
-      await onSubmit(selectedCourseId, content.trim() || undefined);
+      await onSubmit(selectedCourseId, trimmedContent || undefined);
+
       // Clear form on success
       setSelectedCourseId('');
       setContent('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save suggestion');
+      console.error('AddSuggestionForm error:', err);
+
+      // Enhanced error handling
+      if (err instanceof Error) {
+        if (err.message.includes('not assigned')) {
+          setError('You are not authorized to suggest courses for this student');
+        } else if (err.message.includes('logged in')) {
+          setError('Please log in to add course suggestions');
+        } else if (err.message.includes('already suggested')) {
+          setError('You have already suggested this course to this student');
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError('An unexpected error occurred. Please try again.');
+      }
     } finally {
       setIsSubmitting(false);
     }

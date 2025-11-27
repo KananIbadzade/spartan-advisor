@@ -25,19 +25,49 @@ export const AddNoteForm: React.FC<AddNoteFormProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validation
-    if (!noteContent.trim()) {
+    // Enhanced Validation
+    const trimmedContent = noteContent.trim();
+
+    if (!trimmedContent) {
       setError('Note content is required');
+      return;
+    }
+
+    if (trimmedContent.length < 10) {
+      setError('Note content must be at least 10 characters long');
+      return;
+    }
+
+    if (trimmedContent.length > 2000) {
+      setError('Note content cannot exceed 2000 characters');
+      return;
+    }
+
+    if (!studentId) {
+      setError('Student ID is required');
       return;
     }
 
     try {
       setIsSubmitting(true);
       setError(null);
-      await onSubmit(noteContent.trim());
+      await onSubmit(trimmedContent);
       setNoteContent(''); // Clear form on success
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save note');
+      console.error('AddNoteForm error:', err);
+
+      // Enhanced error handling
+      if (err instanceof Error) {
+        if (err.message.includes('not assigned')) {
+          setError('You are not authorized to add notes for this student');
+        } else if (err.message.includes('logged in')) {
+          setError('Please log in to add notes');
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError('An unexpected error occurred. Please try again.');
+      }
     } finally {
       setIsSubmitting(false);
     }
