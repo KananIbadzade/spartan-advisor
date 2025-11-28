@@ -4,7 +4,19 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { GraduationCap, Calendar, FileText, MessageSquare, LogOut, User, Shield, AlertCircle } from 'lucide-react';
+import {
+  GraduationCap,
+  Calendar,
+  FileText,
+  MessageSquare,
+  LogOut,
+  User,
+  Shield,
+  AlertCircle,
+  NotebookPen,
+  BookOpen,
+  Upload
+} from 'lucide-react';
 import RoleBadge from '@/components/RoleBadge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -23,7 +35,7 @@ const Dashboard = () => {
   const checkUser = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      
+
       if (!user) {
         navigate('/auth');
         return;
@@ -73,13 +85,13 @@ const Dashboard = () => {
     );
   }
 
-  const hasActiveRole = (role: string) => 
+  const hasActiveRole = (role: string) =>
     roles.some(r => r.role === role && r.status === 'active');
-  
-  const hasPendingRole = (role: string) => 
+
+  const hasPendingRole = (role: string) =>
     roles.some(r => r.role === role && r.status === 'pending');
 
-  const hasRole = (role: string) => 
+  const hasRole = (role: string) =>
     roles.some(r => r.role === role);
 
   const isStudent = hasRole('student');
@@ -87,11 +99,9 @@ const Dashboard = () => {
   const isAdmin = hasActiveRole('admin');
   const advisorPending = hasPendingRole('advisor');
 
-  // Get highest priority role for display
-  // CRITICAL: Advisors should NEVER show student role, even if they have student features
   const getPrimaryRole = () => {
     if (isAdmin) return roles.find(r => r.role === 'admin');
-    if (hasRole('advisor')) return roles.find(r => r.role === 'advisor'); // Always show advisor, never student
+    if (hasRole('advisor')) return roles.find(r => r.role === 'advisor');
     return roles.find(r => r.role === 'student');
   };
 
@@ -118,7 +128,11 @@ const Dashboard = () => {
               {primaryRole && (
                 <RoleBadge role={primaryRole.role} status={primaryRole.status} />
               )}
-              <Button variant="outline" onClick={handleSignOut} className="gap-2 border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/10">
+              <Button
+                variant="outline"
+                onClick={handleSignOut}
+                className="gap-2 text-primary-foreground bg-transparent border-primary-foreground/30 hover:bg-primary-foreground/10 hover:text-primary-foreground hover:border-primary-foreground/50"
+              >
                 <LogOut className="w-4 h-4" />
                 Sign Out
               </Button>
@@ -198,39 +212,61 @@ const Dashboard = () => {
             </Card>
           )}
 
-          {/* Course Planner - All users */}
-          <Card className="hover:shadow-card transition-all cursor-pointer group">
-            <CardHeader>
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-2 group-hover:bg-primary/20 transition-colors">
-                <Calendar className="w-6 h-6 text-primary" />
-              </div>
-              <CardTitle className="text-lg">Course Planner</CardTitle>
-              <CardDescription>Build your academic roadmap</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button onClick={() => navigate('/planner')} className="w-full">
-                Open Planner
-              </Button>
-            </CardContent>
-          </Card>
+          {/* Advisor Notes & Suggestions - Active Advisors Only */}
+          {isAdvisor && (
+            <Card className="hover:shadow-card transition-all cursor-pointer group">
+              <CardHeader>
+                <div className="w-12 h-12 bg-blue/10 rounded-lg flex items-center justify-center mb-2 group-hover:bg-blue/20 transition-colors">
+                  <NotebookPen className="w-6 h-6 text-blue-600" />
+                </div>
+                <CardTitle className="text-lg">Student Notes</CardTitle>
+                <CardDescription>Add notes and course suggestions</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button onClick={() => navigate('/advisor-tools')} className="w-full bg-blue-600 hover:bg-blue-700">
+                  Open Advisor Tools
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
-          {/* Transcript - All users */}
-          <Card className="hover:shadow-card transition-all cursor-pointer group">
-            <CardHeader>
-              <div className="w-12 h-12 bg-secondary/20 rounded-lg flex items-center justify-center mb-2 group-hover:bg-secondary/30 transition-colors">
-                <FileText className="w-6 h-6 text-secondary-foreground" />
-              </div>
-              <CardTitle className="text-lg">Transcript</CardTitle>
-              <CardDescription>Upload and view your transcript</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button onClick={() => navigate('/transcript')} variant="secondary" className="w-full">
-                Manage Transcript
-              </Button>
-            </CardContent>
-          </Card>
+          {/* Course Planner - Only show for students */}
+          {!isAdvisor && (
+            <Card className="hover:shadow-card transition-all cursor-pointer group">
+              <CardHeader>
+                <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-2 group-hover:bg-primary/20 transition-colors">
+                  <Calendar className="w-6 h-6 text-primary" />
+                </div>
+                <CardTitle className="text-lg">Course Planner</CardTitle>
+                <CardDescription>Build your academic roadmap</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button onClick={() => navigate('/planner')} className="w-full">
+                  Open Planner
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
-          {/* Messages - All users, fully clickable for everyone */}
+          {/* Transcript - Only show for students */}
+          {!isAdvisor && (
+            <Card className="hover:shadow-card transition-all cursor-pointer group">
+              <CardHeader>
+                <div className="w-12 h-12 bg-secondary/20 rounded-lg flex items-center justify-center mb-2 group-hover:bg-secondary/30 transition-colors">
+                  <Upload className="w-6 h-6 text-secondary-foreground" />
+                </div>
+                <CardTitle className="text-lg">Transcript Upload</CardTitle>
+                <CardDescription>Upload and manage transcripts</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button onClick={() => navigate('/transcript')} variant="secondary" className="w-full">
+                  Upload Transcript
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Messages - All users */}
           <Card className="hover:shadow-card transition-all cursor-pointer group">
             <CardHeader>
               <div className="w-12 h-12 bg-accent/10 rounded-lg flex items-center justify-center mb-2 group-hover:bg-accent/20 transition-colors">
@@ -240,9 +276,9 @@ const Dashboard = () => {
               <CardDescription>Chat with others</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button 
-                onClick={() => navigate('/messages')} 
-                variant="outline" 
+              <Button
+                onClick={() => navigate('/messages')}
+                variant="outline"
                 className="w-full"
               >
                 View Messages
@@ -251,7 +287,6 @@ const Dashboard = () => {
           </Card>
 
           {/* Pending Plan Approvals - Advisors and Admins */}
-          {/* For pending advisors: show but grayed out and not clickable */}
           {(isAdvisor || isAdmin || advisorPending) && (
             <Card className={`transition-all ${advisorPending ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-card cursor-pointer group'}`}>
               <CardHeader>
@@ -262,8 +297,8 @@ const Dashboard = () => {
                 <CardDescription>Review student course plans</CardDescription>
               </CardHeader>
               <CardContent>
-                <Button 
-                  onClick={() => !advisorPending && navigate('/pending-approvals')} 
+                <Button
+                  onClick={() => !advisorPending && navigate('/pending-approvals')}
                   className="w-full"
                   disabled={advisorPending}
                 >
@@ -290,49 +325,102 @@ const Dashboard = () => {
           </Card>
         </div>
 
-        {/* Recent Activity */}
+        {/* Enhanced Getting Started - Based on Role */}
         <Card className="shadow-card">
           <CardHeader>
-            <CardTitle>Getting Started</CardTitle>
-            <CardDescription>Follow these steps to make the most of MyPlanner</CardDescription>
+            <CardTitle>
+              {isAdvisor ? 'Advisor Features' : isAdmin ? 'Admin Features' : 'Getting Started'}
+            </CardTitle>
+            <CardDescription>
+              {isAdvisor
+                ? 'Use your enhanced advisor tools to help students succeed'
+                : isAdmin
+                ? 'Manage the system and approve advisor access'
+                : 'Follow these steps to make the most of MyPlanner'
+              }
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="flex items-start gap-4 p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-semibold text-sm">
-                  1
-                </div>
-                <div>
-                  <h4 className="font-semibold mb-1">Complete Your Profile</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Add your student ID, major, and catalog year
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-4 p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-secondary text-secondary-foreground font-semibold text-sm">
-                  2
-                </div>
-                <div>
-                  <h4 className="font-semibold mb-1">Upload Your Transcript</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Import your completed courses for accurate planning
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-4 p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-accent text-accent-foreground font-semibold text-sm">
-                  3
-                </div>
-                <div>
-                  <h4 className="font-semibold mb-1">Create Your Plan</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Use the AI advisor to build an optimized course schedule
-                  </p>
-                </div>
-              </div>
+              {isAdvisor ? (
+                // Advisor specific features
+                <>
+                  <div className="flex items-start gap-4 p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white font-semibold text-sm">
+                      1
+                    </div>
+                    <div>
+                      <h4 className="font-semibold mb-1">Add Student Notes</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Track student progress and add important observations
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-4 p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-600 text-white font-semibold text-sm">
+                      2
+                    </div>
+                    <div>
+                      <h4 className="font-semibold mb-1">Suggest Courses</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Recommend courses based on student needs and prerequisites
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-4 p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-purple-600 text-white font-semibold text-sm">
+                      3
+                    </div>
+                    <div>
+                      <h4 className="font-semibold mb-1">Review Schedule Conflicts</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Use enhanced planner to identify and resolve course conflicts
+                      </p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                // Student features (existing)
+                <>
+                  <div className="flex items-start gap-4 p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-semibold text-sm">
+                      1
+                    </div>
+                    <div>
+                      <h4 className="font-semibold mb-1">Complete Your Profile & Upload Transcript</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Add your student ID, major, and upload your transcript for accurate planning
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-4 p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-secondary text-secondary-foreground font-semibold text-sm">
+                      2
+                    </div>
+                    <div>
+                      <h4 className="font-semibold mb-1">Use Enhanced Course Planner</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Plan with conflict detection, color-coding, and shopping cart features
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-4 p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-accent text-accent-foreground font-semibold text-sm">
+                      3
+                    </div>
+                    <div>
+                      <h4 className="font-semibold mb-1">Export & Share Your Schedule</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Generate PDF exports and share your plan with advisors
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -1,271 +1,151 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Skeleton } from '@/components/ui/skeleton';
-import { BookOpen, Calendar, User, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { BookOpen, Clock, User } from 'lucide-react';
 
-interface Course {
+interface Suggestion {
   id: string;
-  course_code: string;
-  course_number: string;
-  title: string;
-  units: number;
-}
-
-interface AdvisorSuggestion {
-  id: string;
-  advisor_id: string;
-  student_id: string;
-  course_id: string;
   content: string | null;
-  status: 'pending' | 'accepted' | 'declined';
   created_at: string;
-  updated_at: string;
-  courses?: Course;
+  courses: {
+    course_code: string;
+    course_number: string;
+    title: string;
+  } | null;
 }
 
 interface DisplaySuggestionsProps {
   studentId: string;
   studentName?: string;
-  currentUserRole?: 'student' | 'advisor' | 'admin';
-  maxHeight?: string;
-  onStatusUpdate?: (suggestionId: string, newStatus: 'accepted' | 'declined') => Promise<void>;
+  currentUserRole: 'advisor' | 'student';
 }
 
-export const DisplaySuggestions: React.FC<DisplaySuggestionsProps> = ({
-  studentId,
-  studentName,
-  currentUserRole = 'student',
-  maxHeight = "400px",
-  onStatusUpdate
-}) => {
-  const [suggestions, setSuggestions] = useState<AdvisorSuggestion[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: DisplaySuggestionsProps) => {
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    loadSuggestions();
+    if (studentId) {
+      loadSuggestions();
+    }
   }, [studentId]);
 
   const loadSuggestions = async () => {
     try {
       setLoading(true);
-      setError(null);
-      // This will be implemented with the service function
-      // For now, using placeholder
-      setSuggestions([]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load suggestions');
+      console.log('Loading suggestions for student:', studentId);
+
+      const { data, error } = await supabase
+        .from('advisor_suggestions')
+        .select(`
+          id,
+          content,
+          created_at,
+          courses:course_id (
+            course_code,
+            course_number,
+            title
+          )
+        `)
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: false });
+
+      console.log('Suggestions loaded:', data);
+      console.log('Suggestions error:', error);
+
+      if (error) {
+        console.error('Error loading suggestions:', error);
+        return;
+      }
+
+      setSuggestions(data || []);
+    } catch (error) {
+      console.error('Caught error loading suggestions:', error);
     } finally {
       setLoading(false);
     }
   };
-
-  const handleStatusUpdate = async (suggestionId: string, newStatus: 'accepted' | 'declined') => {
-    if (!onStatusUpdate) return;
-
-    try {
-      setUpdatingId(suggestionId);
-      await onStatusUpdate(suggestionId, newStatus);
-
-      // Update local state
-      setSuggestions(prev =>
-        prev.map(suggestion =>
-          suggestion.id === suggestionId
-            ? { ...suggestion, status: newStatus, updated_at: new Date().toISOString() }
-            : suggestion
-        )
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update suggestion');
-    } finally {
-      setUpdatingId(null);
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'accepted':
-        return <CheckCircle className="w-4 h-4 text-green-600" />;
-      case 'declined':
-        return <XCircle className="w-4 h-4 text-red-600" />;
-      default:
-        return <Clock className="w-4 h-4 text-yellow-600" />;
-    }
-  };
-
-  const getStatusBadgeVariant = (status: string) => {
-    switch (status) {
-      case 'accepted':
-        return 'default' as const;
-      case 'declined':
-        return 'destructive' as const;
-      default:
-        return 'secondary' as const;
-    }
-  };
-
-  const canUpdateStatus = currentUserRole === 'student' || currentUserRole === 'admin';
-
-  if (loading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BookOpen className="w-5 h-5" />
-            Course Suggestions {studentName && `for ${studentName}`}
-          </CardTitle>
-          <CardDescription>Loading suggestions...</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="space-y-2">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-16 w-full" />
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (error) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BookOpen className="w-5 h-5" />
-            Course Suggestions {studentName && `for ${studentName}`}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <BookOpen className="w-5 h-5" />
-          Course Suggestions {studentName && `for ${studentName}`}
+          Course Suggestions
         </CardTitle>
         <CardDescription>
-          {suggestions.length === 0
-            ? 'No course suggestions yet'
-            : `${suggestions.length} suggestion${suggestions.length === 1 ? '' : 's'}`
-          }
+          {currentUserRole === 'advisor'
+            ? `Course recommendations for ${studentName || 'student'}`
+            : 'Course recommendations from your advisor'}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {suggestions.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-4">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-2"></div>
+            <p className="text-sm text-muted-foreground">Loading suggestions...</p>
+          </div>
+        ) : suggestions.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
-            <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            <BookOpen className="w-12 h-12 mx-auto mb-2 opacity-50" />
             <p>No course suggestions yet</p>
-            <p className="text-sm">Suggestions from advisors will appear here</p>
+            {currentUserRole === 'advisor' && (
+              <p className="text-sm mt-1">Add a course suggestion above to get started</p>
+            )}
           </div>
         ) : (
-          <ScrollArea style={{ height: maxHeight }}>
-            <div className="space-y-4">
-              {suggestions.map((suggestion, index) => (
-                <div key={suggestion.id}>
-                  <div className="border rounded-lg p-4">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <User className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">Advisor Suggestion</span>
-                        <Badge
-                          variant={getStatusBadgeVariant(suggestion.status)}
-                          className="flex items-center gap-1"
-                        >
-                          {getStatusIcon(suggestion.status)}
-                          {suggestion.status}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Calendar className="w-3 h-3" />
-                        {formatDate(suggestion.created_at)}
-                      </div>
-                    </div>
-
-                    {/* Course Information */}
-                    <div className="bg-primary/5 rounded-md p-3 mb-3">
+          <div className="space-y-4">
+            {suggestions.map((suggestion) => (
+              <div key={suggestion.id} className="border rounded-lg p-4 space-y-3">
+                {suggestion.courses && (
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <BookOpen className="w-4 h-4 text-primary" />
-                        <span className="font-medium">
-                          {suggestion.courses?.course_code} {suggestion.courses?.course_number}
-                        </span>
-                        <Badge variant="outline" className="text-xs">
-                          {suggestion.courses?.units} units
+                        <Badge variant="secondary" className="font-mono text-xs">
+                          {suggestion.courses.course_code} {suggestion.courses.course_number}
                         </Badge>
                       </div>
-                      <p className="text-sm font-medium mb-1">{suggestion.courses?.title}</p>
+                      <h4 className="font-medium text-sm">{suggestion.courses.title}</h4>
                     </div>
-
-                    {/* Advisor's Notes */}
-                    {suggestion.content && (
-                      <div className="mb-3">
-                        <p className="text-xs font-medium text-muted-foreground mb-1">Advisor's Notes:</p>
-                        <p className="text-sm leading-relaxed">{suggestion.content}</p>
-                      </div>
-                    )}
-
-                    {/* Action Buttons for Students */}
-                    {canUpdateStatus && suggestion.status === 'pending' && (
-                      <div className="flex justify-end space-x-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleStatusUpdate(suggestion.id, 'declined')}
-                          disabled={updatingId === suggestion.id}
-                        >
-                          <XCircle className="w-3 h-3 mr-1" />
-                          Decline
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => handleStatusUpdate(suggestion.id, 'accepted')}
-                          disabled={updatingId === suggestion.id}
-                        >
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                          Accept
-                        </Button>
-                      </div>
-                    )}
                   </div>
+                )}
 
-                  {index < suggestions.length - 1 && (
-                    <Separator className="my-4" />
-                  )}
+                {suggestion.content && (
+                  <div className="bg-muted/50 rounded p-3">
+                    <p className="text-sm leading-relaxed">{suggestion.content}</p>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    <span>{new Date(suggestion.created_at).toLocaleDateString()}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <User className="w-3 h-3" />
+                    <span>Advisor recommendation</span>
+                  </div>
                 </div>
-              ))}
-            </div>
-          </ScrollArea>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {suggestions.length > 0 && (
+          <div className="mt-4 pt-4 border-t">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={loadSuggestions}
+              className="w-full text-muted-foreground"
+            >
+              Refresh suggestions
+            </Button>
+          </div>
         )}
       </CardContent>
     </Card>
   );
 };
-
-export default DisplaySuggestions;

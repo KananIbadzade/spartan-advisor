@@ -11,6 +11,7 @@ import Profile from "./pages/Profile";
 import RoleSelection from "./pages/RoleSelection";
 import Admin from "./pages/Admin";
 import PendingAdvisors from "./pages/PendingAdvisors";
+import AdvisorTools from "./pages/AdvisorTools";
 import Planner from "./pages/Planner";
 import Transcript from "./pages/Transcript";
 import Messages from "./pages/Messages";
@@ -36,6 +37,7 @@ const App = () => (
           <Route path="/planner" element={<Planner />} />
           <Route path="/transcript" element={<Transcript />} />
           <Route path="/messages" element={<Messages />} />
+          <Route path="/advisor-tools" element={<AdvisorTools />} />
           <Route path="/pending-approvals" element={<PendingApprovals />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />

@@ -17,7 +17,7 @@ import {
   CheckCircle,
   DollarSign
 } from 'lucide-react';
-import { ConflictDetector, Course, useConflictDetection } from '@/components/ConflictDetector';
+import { ConflictIndicator, Course, useConflictDetection } from '@/components/ConflictDetector';
 
 interface CourseCartItem extends Course {
   addedAt: string;
@@ -261,7 +261,7 @@ export const CourseCart: React.FC<CourseCartProps> = ({
               {/* Conflict Details */}
               {hasConflicts && (
                 <div className="p-4 border-t border-b bg-destructive/5">
-                  <ConflictDetector conflicts={conflicts} />
+                  <ConflictIndicator conflicts={conflicts} />
                 </div>
               )}
 
