@@ -1,8 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
-import { MessageCircle, X, Minimize2, Send, Trash2 } from 'lucide-react';
+import { MessageCircle, X, Minimize2, Send, Trash2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { callOpenAI } from '@/lib/api';
+import {
+  extractCourseCodes,
+  getCoursesByCodes,
+  buildCourseContext,
+  extractMajorKeywords,
+  searchRoadmaps,
+  buildRoadmapContext,
+  getCurrentUserMajor
+} from '@/lib/supabase-queries';
 
 interface Message {
   id: string;
@@ -18,6 +28,7 @@ export const ChatbotWidget = () => {
   const [isMinimized, setIsMinimized] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -58,8 +69,8 @@ export const ChatbotWidget = () => {
     }
   }, [isOpen, isMinimized]);
 
-  const handleSend = () => {
-    if (!inputValue.trim()) return;
+  const handleSend = async () => {
+    if (!inputValue.trim() || isLoading) return;
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -68,15 +79,97 @@ export const ChatbotWidget = () => {
       timestamp: new Date(),
     };
 
-    const botMessage: Message = {
-      id: `bot-${Date.now()}`,
-      role: 'bot',
-      content: '(UI only)',
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage, botMessage]);
+    // Add user message immediately
+    setMessages((prev) => [...prev, userMessage]);
     setInputValue('');
+    setIsLoading(true);
+
+    try {
+      let contextParts: string[] = [];
+
+      // Get user's major from profile (for personalized responses)
+      const userMajor = await getCurrentUserMajor();
+
+      // Extract course codes from the user's message (e.g., "CMPE 133", "CS 46A")
+      const courseCodes = extractCourseCodes(userMessage.content);
+
+      // If course codes were mentioned, fetch data from Supabase
+      if (courseCodes.length > 0) {
+        const courses = await getCoursesByCodes(courseCodes);
+
+        if (courses.length > 0) {
+          const courseContext = buildCourseContext(courses);
+          contextParts.push(courseContext);
+        }
+      }
+
+      // Extract major keywords (e.g., "software engineering", "computer science")
+      let majorKeywords = extractMajorKeywords(userMessage.content);
+
+      // If no major mentioned but user has major in profile, auto-use it
+      if (majorKeywords.length === 0 && userMajor) {
+        majorKeywords = [userMajor.toLowerCase()];
+        console.log(`Auto-detected user major from profile: ${userMajor}`);
+      }
+
+      // If major keywords were mentioned or detected, fetch roadmap data
+      if (majorKeywords.length > 0) {
+        // Search for the first matching major
+        const roadmaps = await searchRoadmaps(majorKeywords[0]);
+
+        if (roadmaps.length > 0) {
+          const roadmapContext = buildRoadmapContext(roadmaps[0]);
+          contextParts.push(roadmapContext);
+        }
+      }
+
+      // Build the enhanced prompt with all available context
+      let enhancedPrompt = userMessage.content;
+
+      if (contextParts.length > 0) {
+        enhancedPrompt = `${contextParts.join('\n\n---\n\n')}\n\nStudent Question: ${userMessage.content}`;
+      }
+
+      // Enhanced system message for better roadmap responses
+      const systemMessage = `You are a helpful assistant for SJSU students, specializing in course planning and academic advising.
+${userMajor ? `\nThe student is majoring in ${userMajor}.` : ''}
+
+IMPORTANT INSTRUCTIONS:
+1. When showing major roadmaps, include ALL courses from the roadmap data provided, organized by year and semester.
+2. Clearly distinguish between:
+   - SPECIFIC COURSES (like "CS 46A - Introduction to Programming") - these have course codes and full titles
+   - PLACEHOLDER CATEGORIES (like "GE Area 1A", "Computer Science Elective", "Upper Division Elective") - these are flexible choices the student selects
+3. For placeholder categories, explain that students choose courses from that category (e.g., "GE Area 1A - you choose a course from General Education Area 1A").
+4. Include unit counts for each semester.
+5. Mention any special notes (like "Apply to Graduate" or GPA requirements).
+6. Be comprehensive - don't summarize or skip courses when showing a roadmap.${userMajor ? `\n7. When asked about general course planning, prioritize information relevant to ${userMajor} students.` : ''}`;
+
+      // Call OpenAI API with enhanced prompt (includes course/roadmap data)
+      // Use higher token limit for roadmap queries to allow complete responses
+      const maxTokens = majorKeywords.length > 0 ? 1500 : 500;
+      const response = await callOpenAI(enhancedPrompt, systemMessage, maxTokens);
+
+      const botMessage: Message = {
+        id: `bot-${Date.now()}`,
+        role: 'bot',
+        content: response,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, botMessage]);
+    } catch (error) {
+      // Add error message
+      const errorMessage: Message = {
+        id: `bot-${Date.now()}`,
+        role: 'bot',
+        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -179,28 +272,38 @@ export const ChatbotWidget = () => {
                     <p>Start a conversation about your course plan...</p>
                   </div>
                 ) : (
-                  messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={cn(
-                        'flex',
-                        message.role === 'user' ? 'justify-end' : 'justify-start'
-                      )}
-                    >
+                  <>
+                    {messages.map((message) => (
                       <div
+                        key={message.id}
                         className={cn(
-                          'max-w-[80%] rounded-lg px-4 py-2 text-sm',
-                          message.role === 'user'
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-muted text-foreground'
+                          'flex',
+                          message.role === 'user' ? 'justify-end' : 'justify-start'
                         )}
                       >
-                        <p className="whitespace-pre-wrap break-words">
-                          {message.content}
-                        </p>
+                        <div
+                          className={cn(
+                            'max-w-[80%] rounded-lg px-4 py-2 text-sm',
+                            message.role === 'user'
+                              ? 'bg-primary text-primary-foreground'
+                              : 'bg-muted text-foreground'
+                          )}
+                        >
+                          <p className="whitespace-pre-wrap break-words">
+                            {message.content}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    ))}
+                    {isLoading && (
+                      <div className="flex justify-start">
+                        <div className="bg-muted rounded-lg px-4 py-2 text-sm flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span className="text-muted-foreground">Thinking...</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
                 <div ref={messagesEndRef} />
               </div>
@@ -216,6 +319,7 @@ export const ChatbotWidget = () => {
                     placeholder="Type your message... (Enter to send, Shift+Enter for newline)"
                     className="min-h-[60px] max-h-[120px] resize-none"
                     rows={2}
+                    disabled={isLoading}
                   />
                 </div>
                 <div className="flex gap-2">
@@ -224,7 +328,7 @@ export const ChatbotWidget = () => {
                     size="sm"
                     onClick={handleClear}
                     className="flex-1"
-                    disabled={messages.length === 0}
+                    disabled={messages.length === 0 || isLoading}
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
                     Clear
@@ -233,10 +337,19 @@ export const ChatbotWidget = () => {
                     onClick={handleSend}
                     size="sm"
                     className="flex-1"
-                    disabled={!inputValue.trim()}
+                    disabled={!inputValue.trim() || isLoading}
                   >
-                    <Send className="w-4 h-4 mr-2" />
-                    Send
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Sending
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4 mr-2" />
+                        Send
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
