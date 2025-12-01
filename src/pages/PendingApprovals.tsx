@@ -189,7 +189,7 @@ const PendingApprovals = () => {
               Back
             </Button>
             <div>
-              <h1 className="text-2xl font-bold text-primary-foreground">Pending Plan Approvals</h1>
+              <h1 className="text-2xl font-bold text-primary-foreground">Advisor Tasks</h1>
               <p className="text-sm text-primary-foreground/80">Review and approve student course plans</p>
             </div>
           </div>

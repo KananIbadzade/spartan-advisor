@@ -220,7 +220,7 @@ const Dashboard = () => {
                 <div className="w-12 h-12 bg-blue/10 rounded-lg flex items-center justify-center mb-2 group-hover:bg-blue/20 transition-colors">
                   <NotebookPen className="w-6 h-6 text-blue-600" />
                 </div>
-                <CardTitle className="text-lg">Student Notes</CardTitle>
+                <CardTitle className="text-lg">Advisor Tasks</CardTitle>
                 <CardDescription>Add notes and course suggestions</CardDescription>
               </CardHeader>
               <CardContent>

@@ -615,27 +615,7 @@ const Planner = () => {
                 Back
               </Button>
               <div>
-                <div className="flex items-center gap-3">
-                  <h1 className="text-2xl font-bold text-primary-foreground">Course Planner</h1>
-                  <Badge
-                    variant={
-                      planStatus === 'submitted' ? 'default' :
-                      planStatus === 'approved' ? 'default' :
-                      planStatus === 'declined' ? 'destructive' :
-                      'outline'
-                    }
-                    className={cn(
-                      "text-xs font-medium",
-                      planStatus === 'submitted' && "bg-yellow-500 hover:bg-yellow-600",
-                      planStatus === 'approved' && "bg-green-500 hover:bg-green-600"
-                    )}
-                  >
-                    {planStatus === 'submitted' && '⏳ Pending Approval'}
-                    {planStatus === 'approved' && '✓ Approved'}
-                    {planStatus === 'declined' && '✗ Declined'}
-                    {planStatus === 'draft' && '📝 Draft'}
-                  </Badge>
-                </div>
+                <h1 className="text-2xl font-bold text-primary-foreground">Course Planner</h1>
                 <p className="text-sm text-primary-foreground/80">Build your academic roadmap</p>
               </div>
             </div>
