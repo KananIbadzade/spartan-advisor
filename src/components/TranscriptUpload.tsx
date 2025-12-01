@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { Upload, FileText, CheckCircle, X, AlertCircle } from 'lucide-react';
+import { parseTranscript } from '@/lib/transcriptParser';
 
 interface TranscriptUploadProps {
   onUploadComplete?: (fileUrl: string, fileName: string) => void;
@@ -94,12 +95,27 @@ export const TranscriptUpload: React.FC<TranscriptUploadProps> = ({
         throw new Error(`Upload failed: ${uploadError.message}`);
       }
 
-      // Store storage path instead of public URL (bucket kept private; signed URL generated on demand)
+      // Parse the PDF to extract course data
+      setUploadProgress(95); // Show we're processing
+      let parsedCourses = null;
+      try {
+        console.log('Parsing transcript PDF...');
+        const courses = await parseTranscript(file);
+        parsedCourses = courses;
+        console.log(`Successfully parsed ${courses.length} courses`);
+      } catch (parseError) {
+        console.error('PDF parsing failed:', parseError);
+        // Continue with upload even if parsing fails
+        // User can manually enter courses later
+      }
+
+      // Store storage path and parsed data
       const { error: dbError } = await supabase
         .from('transcripts')
         .upsert({
           user_id: user.id,
           file_url: fileName, // repurposed column holds object path
+          parsed_data: parsedCourses,
           uploaded_at: new Date().toISOString()
         });
 

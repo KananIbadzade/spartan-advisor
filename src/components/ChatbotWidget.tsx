@@ -11,7 +11,9 @@ import {
   extractMajorKeywords,
   searchRoadmaps,
   buildRoadmapContext,
-  getCurrentUserMajor
+  getCurrentUserMajor,
+  getCompletedCoursesFromTranscript,
+  buildCompletedCoursesContext
 } from '@/lib/supabase-queries';
 
 interface Message {
@@ -90,6 +92,14 @@ export const ChatbotWidget = () => {
       // Get user's major from profile (for personalized responses)
       const userMajor = await getCurrentUserMajor();
 
+      // Get completed courses from transcript (for progress-aware recommendations)
+      const completedCourses = await getCompletedCoursesFromTranscript();
+      if (completedCourses.length > 0) {
+        const completedContext = buildCompletedCoursesContext(completedCourses);
+        contextParts.push(completedContext);
+        console.log(`Added ${completedCourses.length} completed courses to context`);
+      }
+
       // Extract course codes from the user's message (e.g., "CMPE 133", "CS 46A")
       const courseCodes = extractCourseCodes(userMessage.content);
 
@@ -133,6 +143,7 @@ export const ChatbotWidget = () => {
       // Enhanced system message for better roadmap responses
       const systemMessage = `You are a helpful assistant for SJSU students, specializing in course planning and academic advising.
 ${userMajor ? `\nThe student is majoring in ${userMajor}.` : ''}
+${completedCourses.length > 0 ? `\nThe student has already completed ${completedCourses.length} courses (listed in the context below).` : ''}
 
 IMPORTANT INSTRUCTIONS:
 1. When showing major roadmaps, include ALL courses from the roadmap data provided, organized by year and semester.
@@ -142,7 +153,9 @@ IMPORTANT INSTRUCTIONS:
 3. For placeholder categories, explain that students choose courses from that category (e.g., "GE Area 1A - you choose a course from General Education Area 1A").
 4. Include unit counts for each semester.
 5. Mention any special notes (like "Apply to Graduate" or GPA requirements).
-6. Be comprehensive - don't summarize or skip courses when showing a roadmap.${userMajor ? `\n7. When asked about general course planning, prioritize information relevant to ${userMajor} students.` : ''}`;
+6. Be comprehensive - don't summarize or skip courses when showing a roadmap.${userMajor ? `\n7. When asked about general course planning, prioritize information relevant to ${userMajor} students.` : ''}
+${completedCourses.length > 0 ? `\n8. CRITICAL: When asked "what courses should I take", ONLY recommend courses the student HAS NOT completed yet. Cross-reference with their completed courses list.` : ''}
+${completedCourses.length > 0 ? `\n9. When recommending next courses, check prerequisites - only suggest courses whose prerequisites they've already completed.` : ''}`;
 
       // Call OpenAI API with enhanced prompt (includes course/roadmap data)
       // Use higher token limit for roadmap queries to allow complete responses

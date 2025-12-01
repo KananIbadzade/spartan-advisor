@@ -387,3 +387,83 @@ export async function getCurrentUserMajor(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Get completed courses from user's uploaded transcript
+ * Returns array of course codes like ["CS 46A", "MATH 30", "CMPE 131"]
+ */
+export async function getCompletedCoursesFromTranscript(): Promise<string[]> {
+  try {
+    // Get current authenticated user
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      console.log('No authenticated user found');
+      return [];
+    }
+
+    // Get user's most recent transcript
+    const { data, error } = await supabase
+      .from('transcripts')
+      .select('parsed_data')
+      .eq('user_id', user.id)
+      .order('uploaded_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error || !data || !data.parsed_data) {
+      console.log('No transcript found or no parsed data');
+      return [];
+    }
+
+    const parsedData = data.parsed_data as any;
+
+    // Extract completed courses from parsed data
+    // Format depends on how the transcript parser stores data
+    // Common formats:
+    // - parsedData.courses = [{ code: "CS 46A", grade: "A" }, ...]
+    // - parsedData = [{ courseCode: "CS 46A", ... }, ...]
+
+    const completedCourses: string[] = [];
+
+    // Try different possible data structures
+    if (Array.isArray(parsedData)) {
+      // If parsed_data is directly an array of courses
+      parsedData.forEach((course: any) => {
+        const courseCode = course.code || course.courseCode || course.course_code ||
+                          (course.course_code && course.course_number ?
+                            `${course.course_code} ${course.course_number}` : null);
+        if (courseCode) {
+          completedCourses.push(courseCode);
+        }
+      });
+    } else if (parsedData.courses && Array.isArray(parsedData.courses)) {
+      // If parsed_data has a courses array
+      parsedData.courses.forEach((course: any) => {
+        const courseCode = course.code || course.courseCode || course.course_code ||
+                          (course.course_code && course.course_number ?
+                            `${course.course_code} ${course.course_number}` : null);
+        if (courseCode) {
+          completedCourses.push(courseCode);
+        }
+      });
+    }
+
+    console.log(`Found ${completedCourses.length} completed courses from transcript`);
+    return completedCourses;
+  } catch (error) {
+    console.error('Error in getCompletedCoursesFromTranscript:', error);
+    return [];
+  }
+}
+
+/**
+ * Build context string about user's completed courses
+ */
+export function buildCompletedCoursesContext(completedCourses: string[]): string {
+  if (completedCourses.length === 0) {
+    return '';
+  }
+
+  return `Student's Completed Courses (from transcript):\n${completedCourses.join(', ')}\n\n`;
+}
