@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Plus, Trash2, GripVertical, ShoppingCart, Download } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { ArrowLeft, Plus, Trash2, GripVertical, ShoppingCart, Download, Clock } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,7 +20,7 @@ import { ChatbotWidget } from '@/components/ChatbotWidget';
 // Import your new components
 import { CourseCart, useCourseCart, useCourseCartManager } from '@/components/CourseCart';
 import { ConflictIndicator, useConflictDetection } from '@/components/ConflictDetector';
-import { CourseTypeBadge, ColorCodedCourseCard, CourseTypeLegend, useCourseTypeFilter } from '@/components/CourseColorCoding';
+import { CourseTypeBadge, ColorCodedCourseCard, CourseTypeLegend, courseTypeConfigs, CourseType } from '@/components/CourseColorCoding';
 import { SchedulePDFExporter } from '@/components/SchedulePDFExporter';
 import { DisplayNotes, DisplaySuggestions } from '@/components/AdvisorNotes'; // adjust if needed
 
@@ -40,6 +42,13 @@ interface Department {
   name: string;
 }
 
+interface CourseTime {
+  day: string;
+  startTime: string;
+  endTime: string;
+  room?: string;
+}
+
 interface Course {
   id: string;
   course_code: string;
@@ -48,6 +57,7 @@ interface Course {
   units: number;
   department_id: string | null;
   type?: any; // Course type for color coding
+  schedule?: CourseTime[]; // Class meeting times
 }
 
 interface PlanCourse {
@@ -73,6 +83,7 @@ const Planner = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [planId, setPlanId] = useState<string | null>(null);
+  const [planStatus, setPlanStatus] = useState<'draft' | 'submitted' | 'approved' | 'declined'>('draft');
   const [planCourses, setPlanCourses] = useState<PlanCourse[]>([]);
   const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -81,6 +92,33 @@ const Planner = () => {
   const [role, setRole] = useState<string | null>(null);
   const [advisorNotes, setAdvisorNotes] = useState<any[]>([]);
   const [advisorSuggestions, setAdvisorSuggestions] = useState<any[]>([]);
+
+  // Course type filtering state
+  const [selectedTypes, setSelectedTypes] = useState<CourseType[]>(
+    Object.keys(courseTypeConfigs) as CourseType[]
+  );
+
+  // Filter plan courses based on selected types
+  const filteredPlanCourses = useMemo(() => {
+    return planCourses.filter(planCourse => {
+      const courseType = planCourse.courses.type || 'free-elective';
+      return selectedTypes.includes(courseType);
+    });
+  }, [planCourses, selectedTypes]);
+
+  // Toggle type filter
+  const toggleType = (type: CourseType) => {
+    setSelectedTypes(prev =>
+      prev.includes(type)
+        ? prev.filter(t => t !== type)
+        : [...prev, type]
+    );
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
+    setSelectedTypes(Object.keys(courseTypeConfigs) as CourseType[]);
+  };
 
   // Add term dialog state
   const [addTermOpen, setAddTermOpen] = useState(false);
@@ -153,7 +191,7 @@ const Planner = () => {
 
   useEffect(() => {
     organizeCoursesByTerm();
-  }, [planCourses]);
+  }, [filteredPlanCourses]);
 
   useEffect(() => {
     const loadRole = async () => {
@@ -236,8 +274,10 @@ const Planner = () => {
 
         if (createError) throw createError;
         setPlanId(newPlan.id);
+        setPlanStatus(newPlan.status || 'draft');
       } else {
         setPlanId(plans[0].id);
+        setPlanStatus(plans[0].status || 'draft');
       }
 
       // Load plan courses with enhanced data for conflict detection
@@ -317,7 +357,8 @@ const Planner = () => {
   const organizeCoursesByTerm = () => {
     const termMap = new Map<string, TermGroup>();
 
-    planCourses.forEach(pc => {
+    // Use filtered courses instead of all planCourses
+    filteredPlanCourses.forEach(pc => {
       const key = `${pc.year}-${pc.term}`;
       if (!termMap.has(key)) {
         termMap.set(key, {
@@ -565,8 +606,36 @@ const Planner = () => {
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                onClick={() => navigate('/dashboard')}
+                className="gap-2 text-primary-foreground hover:bg-primary-foreground/10"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back
+              </Button>
               <div>
-                <h1 className="text-2xl font-bold text-primary-foreground">Course Planner</h1>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-2xl font-bold text-primary-foreground">Course Planner</h1>
+                  <Badge
+                    variant={
+                      planStatus === 'submitted' ? 'default' :
+                      planStatus === 'approved' ? 'default' :
+                      planStatus === 'declined' ? 'destructive' :
+                      'outline'
+                    }
+                    className={cn(
+                      "text-xs font-medium",
+                      planStatus === 'submitted' && "bg-yellow-500 hover:bg-yellow-600",
+                      planStatus === 'approved' && "bg-green-500 hover:bg-green-600"
+                    )}
+                  >
+                    {planStatus === 'submitted' && '⏳ Pending Approval'}
+                    {planStatus === 'approved' && '✓ Approved'}
+                    {planStatus === 'declined' && '✗ Declined'}
+                    {planStatus === 'draft' && '📝 Draft'}
+                  </Badge>
+                </div>
                 <p className="text-sm text-primary-foreground/80">Build your academic roadmap</p>
               </div>
             </div>
@@ -678,11 +747,45 @@ const Planner = () => {
               <div className="mb-6">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Course Types</CardTitle>
-                    <CardDescription>Filter your courses by type</CardDescription>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle>Course Types</CardTitle>
+                        <CardDescription>Click to filter your courses by type</CardDescription>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearFilters}
+                      >
+                        Show All
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent>
-                    <CourseTypeLegend layout="horizontal" />
+                    <div className="flex flex-wrap gap-3">
+                      {(Object.keys(courseTypeConfigs) as CourseType[]).map(type => {
+                        const config = courseTypeConfigs[type];
+                        const isSelected = selectedTypes.includes(type);
+                        return (
+                          <button
+                            key={type}
+                            onClick={() => toggleType(type)}
+                            className={cn(
+                              "flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all",
+                              isSelected
+                                ? `${config.bgColor} ${config.borderColor} ${config.textColor} font-medium`
+                                : "bg-gray-50 border-gray-200 text-gray-400 opacity-50 hover:opacity-75"
+                            )}
+                          >
+                            <div
+                              className="w-3 h-3 rounded"
+                              style={{ backgroundColor: config.hex }}
+                            />
+                            <span className="text-sm">{config.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </CardContent>
                 </Card>
               </div>
@@ -736,7 +839,7 @@ const Planner = () => {
               widthPx={cartWidth}
               isOpen={true}
               onToggle={toggleCart}
-              onFinalizePlan={async (courses) => {
+              onFinalizePlan={async (courses, submitToAdvisor = false) => {
                 if (!planId) {
                   toast({
                     title: 'No plan',
@@ -746,6 +849,7 @@ const Planner = () => {
                   return;
                 }
                 try {
+                  // Insert courses
                   for (const course of courses) {
                     const termOrderMap: Record<string, number> = {
                       Spring: 1,
@@ -772,10 +876,29 @@ const Planner = () => {
                     });
                     if (error) throw error;
                   }
+
+                  // Update plan status if submitting to advisor
+                  if (submitToAdvisor) {
+                    const { error: updateError } = await supabase
+                      .from('student_plans')
+                      .update({
+                        status: 'submitted',
+                        submitted_at: new Date().toISOString()
+                      })
+                      .eq('id', planId);
+
+                    if (updateError) throw updateError;
+
+                    // Update local state to reflect submission
+                    setPlanStatus('submitted');
+                  }
+
                   clearCart();
                   toast({
-                    title: 'Plan Updated',
-                    description: `${courses.length} courses added to your plan.`
+                    title: submitToAdvisor ? 'Plan Submitted' : 'Plan Updated',
+                    description: submitToAdvisor
+                      ? `${courses.length} courses added and submitted to your advisor for review.`
+                      : `${courses.length} courses added to your plan.`
                   });
                 } catch (err: any) {
                   toast({
@@ -829,6 +952,8 @@ interface TermCardProps {
 }
 
 const TermCard = ({ term, onDeleteCourse }: TermCardProps) => {
+  const { toast } = useToast();
+
   return (
     <Card className="transition-colors hover:border-primary/30">
       <CardHeader>
@@ -852,7 +977,42 @@ const TermCard = ({ term, onDeleteCourse }: TermCardProps) => {
               }}
               className="cursor-pointer"
             >
-              <div className="flex justify-end gap-2">
+              {/* Display schedule if available */}
+              {planCourse.courses.schedule && planCourse.courses.schedule.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-border/50">
+                  <div className="flex items-start gap-2">
+                    <Clock className="w-3 h-3 text-muted-foreground mt-0.5" />
+                    <div className="flex-1 space-y-1">
+                      {planCourse.courses.schedule.map((time: any, idx: number) => (
+                        <div key={idx} className="text-xs text-muted-foreground">
+                          <span className="font-medium">{time.day}</span>: {time.startTime} - {time.endTime}
+                          {time.room && <span className="ml-2">({time.room})</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center gap-2 mt-2">
+                {!planCourse.courses.schedule || planCourse.courses.schedule.length === 0 ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs gap-1"
+                    onClick={() => {
+                      toast({
+                        title: 'Add Class Times',
+                        description: 'Feature coming soon! You can add schedule times to detect conflicts.',
+                      });
+                    }}
+                  >
+                    <Clock className="w-3 h-3" />
+                    Add Times
+                  </Button>
+                ) : (
+                  <div />
+                )}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -861,7 +1021,6 @@ const TermCard = ({ term, onDeleteCourse }: TermCardProps) => {
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
-                {/* remove the incorrect Add to Plan button */}
               </div>
             </ColorCodedCourseCard>
           ))}

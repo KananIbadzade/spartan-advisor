@@ -3,16 +3,21 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { BookOpen, Clock, User } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { BookOpen, Clock, User, CheckCircle, XCircle, Plus } from 'lucide-react';
 
 interface Suggestion {
   id: string;
   content: string | null;
+  status: 'pending' | 'accepted' | 'declined';
   created_at: string;
+  course_id: string;
   courses: {
+    id: string;
     course_code: string;
     course_number: string;
     title: string;
+    units: number;
   } | null;
 }
 
@@ -25,6 +30,7 @@ interface DisplaySuggestionsProps {
 export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: DisplaySuggestionsProps) => {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (studentId) {
@@ -42,11 +48,15 @@ export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: 
         .select(`
           id,
           content,
+          status,
           created_at,
+          course_id,
           courses:course_id (
+            id,
             course_code,
             course_number,
-            title
+            title,
+            units
           )
         `)
         .eq('student_id', studentId)
@@ -60,11 +70,81 @@ export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: 
         return;
       }
 
-      setSuggestions(data || []);
+      setSuggestions(data as any || []);
     } catch (error) {
       console.error('Caught error loading suggestions:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAcceptSuggestion = async (suggestion: Suggestion) => {
+    if (!suggestion.courses) return;
+
+    try {
+      // Get the student's current plan
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: plans } = await supabase
+        .from('student_plans')
+        .select('id')
+        .eq('student_id', user.id)
+        .single();
+
+      if (!plans) {
+        toast({
+          title: 'No Plan Found',
+          description: 'Please create a plan first',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      // Update suggestion status to accepted
+      const { error: statusError } = await supabase
+        .from('advisor_suggestions')
+        .update({ status: 'accepted' })
+        .eq('id', suggestion.id);
+
+      if (statusError) throw statusError;
+
+      toast({
+        title: 'Suggestion Accepted!',
+        description: `${suggestion.courses.course_code} ${suggestion.courses.course_number} marked as accepted. You can now add it to your cart from the course catalog.`,
+      });
+
+      loadSuggestions();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleDeclineSuggestion = async (suggestionId: string) => {
+    try {
+      const { error } = await supabase
+        .from('advisor_suggestions')
+        .update({ status: 'declined' })
+        .eq('id', suggestionId);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Suggestion Declined',
+        description: 'The course suggestion has been declined.'
+      });
+
+      loadSuggestions();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
     }
   };
 
@@ -106,8 +186,21 @@ export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: 
                         <Badge variant="secondary" className="font-mono text-xs">
                           {suggestion.courses.course_code} {suggestion.courses.course_number}
                         </Badge>
+                        <Badge
+                          variant={
+                            suggestion.status === 'pending'
+                              ? 'outline'
+                              : suggestion.status === 'accepted'
+                              ? 'default'
+                              : 'destructive'
+                          }
+                          className="text-xs"
+                        >
+                          {suggestion.status}
+                        </Badge>
                       </div>
                       <h4 className="font-medium text-sm">{suggestion.courses.title}</h4>
+                      <p className="text-xs text-muted-foreground">{suggestion.courses.units} units</p>
                     </div>
                   </div>
                 )}
@@ -128,6 +221,29 @@ export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: 
                     <span>Advisor recommendation</span>
                   </div>
                 </div>
+
+                {/* Student actions for pending suggestions */}
+                {currentUserRole === 'student' && suggestion.status === 'pending' && (
+                  <div className="flex gap-2 pt-2 border-t">
+                    <Button
+                      size="sm"
+                      onClick={() => handleAcceptSuggestion(suggestion)}
+                      className="flex-1 gap-1"
+                    >
+                      <CheckCircle className="w-3 h-3" />
+                      Accept
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleDeclineSuggestion(suggestion.id)}
+                      className="flex-1 gap-1"
+                    >
+                      <XCircle className="w-3 h-3" />
+                      Decline
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
