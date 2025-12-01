@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Plus, Trash2, GripVertical } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, GripVertical, ShoppingCart, Download } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,9 +15,16 @@ import { CSS } from '@dnd-kit/utilities';
 import { z } from 'zod';
 import { ChatbotWidget } from '@/components/ChatbotWidget';
 
+// Import your new components
+import { CourseCart, useCourseCart, useCourseCartManager } from '@/components/CourseCart';
+import { ConflictIndicator, useConflictDetection } from '@/components/ConflictDetector';
+import { CourseTypeBadge, ColorCodedCourseCard, CourseTypeLegend, useCourseTypeFilter } from '@/components/CourseColorCoding';
+import { SchedulePDFExporter } from '@/components/SchedulePDFExporter';
+import { DisplayNotes, DisplaySuggestions } from '@/components/AdvisorNotes'; // adjust if needed
+
 const planCourseSchema = z.object({
-  term: z.enum(['Fall', 'Spring', 'Summer'], {
-    errorMap: () => ({ message: 'Please select a valid term (Fall, Spring, or Summer)' })
+  term: z.enum(['Fall', 'Spring', 'Summer', 'Winter'], {
+    errorMap: () => ({ message: 'Please select a valid term (Fall, Spring, Summer, or Winter)' })
   }),
   year: z.string()
     .regex(/^\d{4}$/, 'Year must be a 4-digit number')
@@ -36,9 +43,11 @@ interface Department {
 interface Course {
   id: string;
   course_code: string;
+  course_number: string;
   title: string;
   units: number;
   department_id: string | null;
+  type?: any; // Course type for color coding
 }
 
 interface PlanCourse {
@@ -68,12 +77,16 @@ const Planner = () => {
   const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [terms, setTerms] = useState<TermGroup[]>([]);
-  
+  const [user, setUser] = useState<any>(null);
+  const [role, setRole] = useState<string | null>(null);
+  const [advisorNotes, setAdvisorNotes] = useState<any[]>([]);
+  const [advisorSuggestions, setAdvisorSuggestions] = useState<any[]>([]);
+
   // Add term dialog state
   const [addTermOpen, setAddTermOpen] = useState(false);
   const [newTermName, setNewTermName] = useState('Fall');
   const [newTermYear, setNewTermYear] = useState('2024');
-  
+
   // Add course dialog state
   const [addCourseOpen, setAddCourseOpen] = useState(false);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState('');
@@ -82,24 +95,99 @@ const Planner = () => {
   const [selectedYear, setSelectedYear] = useState('');
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    })
-  );
+  // Add missing PDF export state
+  const [showPDFExport, setShowPDFExport] = useState(false);
+
+  // New feature integrations
+  const { isOpen: isCartOpen, toggleCart } = useCourseCart();
+  const {
+    cartItems,
+    addCourse,
+    removeCourse,
+    clearCart,
+    updateCoursePriority,
+    updateCourseNotes
+  } = useCourseCartManager();
+
+  // Split-view drag state
+  const [cartWidth, setCartWidth] = React.useState(380);
+  const minWidth = 260;
+  const maxWidth = 600;
+  const dragRef = React.useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const startDrag = (e: React.MouseEvent) => {
+    dragRef.current = { startX: e.clientX, startWidth: cartWidth };
+    window.addEventListener('mousemove', onDrag);
+    window.addEventListener('mouseup', endDrag);
+    e.preventDefault();
+  };
+
+  const onDrag = (e: MouseEvent) => {
+    if (!dragRef.current) return;
+    const delta = dragRef.current.startX - e.clientX; // drag left increases width
+    const next = Math.min(Math.max(dragRef.current.startWidth + delta, minWidth), maxWidth);
+    setCartWidth(next);
+  };
+
+  const endDrag = () => {
+    dragRef.current = null;
+    window.removeEventListener('mousemove', onDrag);
+    window.removeEventListener('mouseup', endDrag);
+  };
+
+  // const sensors = useSensors(
+  //   useSensor(PointerSensor, {
+  //     activationConstraint: {
+  //       distance: 8,
+  //     },
+  //   })
+  // );
 
   useEffect(() => {
     loadPlan();
     loadAllCourses();
     loadDepartments();
-    setupRealtimeSubscription();
+    const cleanup = setupRealtimeSubscription();
+    return cleanup;
   }, []);
 
   useEffect(() => {
     organizeCoursesByTerm();
   }, [planCourses]);
+
+  useEffect(() => {
+    const loadRole = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .single();
+      if (!error && data) setRole(data.role);
+    };
+    loadRole();
+  }, []);
+
+  useEffect(() => {
+    if (!planId || !user) return;
+    const loadAdvisorFeedback = async () => {
+      // Fetch notes/suggestions by student_id instead of plan_id
+      const { data: notes } = await supabase
+        .from('advisor_notes')
+        .select('*')
+        .eq('student_id', user.id)
+        .order('created_at', { ascending: false });
+      const { data: suggestions } = await supabase
+        .from('advisor_suggestions')
+        .select('*')
+        .eq('student_id', user.id)
+        .order('created_at', { ascending: false });
+      setAdvisorNotes(notes || []);
+      setAdvisorSuggestions(suggestions || []);
+    };
+    loadAdvisorFeedback();
+  }, [planId, user]);
 
   const setupRealtimeSubscription = () => {
     const channel = supabase
@@ -130,8 +218,10 @@ const Planner = () => {
         return;
       }
 
+      setUser(user);
+
       // Get or create plan
-      let { data: plans } = await supabase
+      const { data: plans } = await supabase
         .from('student_plans')
         .select('*')
         .eq('student_id', user.id);
@@ -150,16 +240,32 @@ const Planner = () => {
         setPlanId(plans[0].id);
       }
 
-      // Load plan courses
+      // Load plan courses with enhanced data for conflict detection
       if (plans && plans.length > 0) {
         const { data: courses } = await supabase
           .from('plan_courses')
-          .select('*, courses(*)')
+          .select(`
+            *,
+            courses(
+              *,
+              departments(code, name)
+            )
+          `)
           .eq('plan_id', plans[0].id)
           .order('term_order')
           .order('position');
 
-        setPlanCourses(courses || []);
+        // Add course types and sample schedule data for demo
+        const enhancedCourses = (courses || []).map(course => ({
+          ...course,
+          courses: {
+            ...course.courses,
+            type: determineCourseType(course.courses),
+            schedule: generateSampleSchedule(course.courses)
+          }
+        }));
+
+        setPlanCourses(enhancedCourses);
       }
     } catch (error: any) {
       toast({
@@ -172,12 +278,30 @@ const Planner = () => {
     }
   };
 
+  // Helper function to determine course type based on course code
+  const determineCourseType = (course: any) => {
+    if (course.course_code === 'CS') return 'major-requirement';
+    if (course.course_code === 'MATH') return 'prerequisite';
+    if (course.course_code === 'ENGL') return 'general-education';
+    return 'free-elective';
+  };
+
+  // Generate sample schedule for conflict detection demo
+  const generateSampleSchedule = (course: any) => {
+    const schedules = [
+      [{ day: 'Monday', startTime: '10:00 AM', endTime: '11:15 AM', room: 'ENG 101' }],
+      [{ day: 'Tuesday', startTime: '2:00 PM', endTime: '3:15 PM', room: 'SCI 201' }],
+      [{ day: 'Wednesday', startTime: '10:00 AM', endTime: '11:15 AM', room: 'ENG 102' }]
+    ];
+    return schedules[Math.floor(Math.random() * schedules.length)];
+  };
+
   const loadAllCourses = async () => {
     const { data } = await supabase
       .from('courses')
       .select('*')
       .order('course_code');
-    
+
     setAllCourses(data || []);
   };
 
@@ -186,7 +310,7 @@ const Planner = () => {
       .from('departments')
       .select('*')
       .order('code');
-    
+
     setDepartments(data || []);
   };
 
@@ -210,22 +334,6 @@ const Planner = () => {
     setTerms(sortedTerms);
   };
 
-  const handleAddTerm = async () => {
-    if (!planId) return;
-
-    // Calculate next term_order
-    const maxOrder = Math.max(0, ...planCourses.map(pc => pc.term_order));
-    const newTermOrder = maxOrder + 1;
-
-    // Add a placeholder course to create the term (we'll delete it after)
-    // For now, just close dialog - terms are created when courses are added
-    setAddTermOpen(false);
-    toast({
-      title: 'Ready to add courses',
-      description: `Add courses to ${newTermName} ${newTermYear}`,
-    });
-  };
-
   const handleAddCourse = async () => {
     if (!planId || !selectedCourseId || !selectedTerm || !selectedYear) {
       toast({
@@ -237,13 +345,11 @@ const Planner = () => {
     }
 
     try {
-      // Validate term and year
       const validatedData = planCourseSchema.parse({
         term: selectedTerm,
         year: selectedYear
       });
 
-      // Calculate term_order based on term name
       const termOrderMap: { [key: string]: number } = {
         'Spring': 1,
         'Summer': 2,
@@ -253,11 +359,10 @@ const Planner = () => {
       const baseOrder = parseInt(validatedData.year) * 10;
       const termOrder = baseOrder + (termOrderMap[validatedData.term] || 0);
 
-      // Get max position for this term
       const coursesInTerm = planCourses.filter(
         pc => pc.term === validatedData.term && pc.year === validatedData.year
       );
-      const maxPosition = coursesInTerm.length > 0 
+      const maxPosition = coursesInTerm.length > 0
         ? Math.max(...coursesInTerm.map(pc => pc.position))
         : -1;
 
@@ -299,56 +404,50 @@ const Planner = () => {
     }
   };
 
-  const handleDragStart = (event: DragEndEvent) => {
-    setActiveDragId(event.active.id as string);
-  };
-
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveDragId(null);
-
-    if (!over) return;
-
-    const courseId = active.id as string;
-    const overTermKey = over.id as string;
-
-    // Parse the term key (format: "year-term")
-    const [newYear, newTerm] = overTermKey.split('-');
-
-    if (!newTerm || !newYear) return;
-
-    try {
-      const termOrderMap: { [key: string]: number } = {
-        'Spring': 1,
-        'Summer': 2,
-        'Fall': 3,
-        'Winter': 4
-      };
-      const baseOrder = parseInt(newYear) * 10;
-      const termOrder = baseOrder + (termOrderMap[newTerm] || 0);
-
-      const { error } = await supabase
-        .from('plan_courses')
-        .update({
-          term: newTerm,
-          year: newYear,
-          term_order: termOrder
-        })
-        .eq('id', courseId);
-
-      if (error) throw error;
-
+  // Instead of calling handleAddCourse (which writes directly to DB),
+  // add a lightweight "Add to Cart" handler:
+  const handleAddToCart = () => {
+    if (!selectedCourseId || !selectedTerm || !selectedYear) {
       toast({
-        title: 'Success',
-        description: 'Course moved',
-      });
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
+        title: 'Missing information',
+        description: 'Please select a course and term',
         variant: 'destructive',
       });
+      return;
     }
+
+    const course = allCourses.find(c => c.id === selectedCourseId);
+    if (!course) {
+      toast({
+        title: 'Error',
+        description: 'Selected course not found',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    addCourse(
+      {
+        id: course.id,
+        course_code: course.course_code,
+        course_number: course.course_number || '',
+        title: course.title,
+        units: course.units,
+        term: selectedTerm,
+        year: selectedYear,
+      },
+      'medium'
+    );
+
+    setAddCourseOpen(false);
+    setSelectedDepartmentId('');
+    setSelectedCourseId('');
+    setSelectedTerm('');
+    setSelectedYear('');
+    toast({
+      title: 'Added to Cart',
+      description: `${course.course_code} added to your course cart`,
+    });
   };
 
   const handleDeleteCourse = async (courseId: string) => {
@@ -375,6 +474,79 @@ const Planner = () => {
     }
   };
 
+  // Convert plan data for PDF export
+  const getExportData = () => {
+    const exportCourses = planCourses.map(pc => ({
+      id: pc.id,
+      course_code: pc.courses.course_code,
+      course_number: pc.courses.course_number || '',
+      title: pc.courses.title,
+      units: pc.courses.units,
+      term: pc.term,
+      year: pc.year,
+      type: pc.courses.type || 'free-elective',
+      schedule: pc.courses.schedule,
+      instructor: 'TBA'
+    }));
+
+    return {
+      courses: exportCourses,
+      studentInfo: {
+        name: 'Student',
+        studentId: 'N/A',
+        major: 'Computer Science',
+        totalUnits: exportCourses.reduce((sum, c) => sum + c.units, 0)
+      }
+    };
+  };
+
+  const addCourseDirectToPlan = async (course: Course, term: string, year: string) => {
+    if (!planId) {
+      toast({ title: 'No plan', description: 'Create a plan first', variant: 'destructive' });
+      return;
+    }
+    try {
+      // Simple validation
+      planCourseSchema.parse({ term, year });
+
+      const termOrderMap: { [key: string]: number } = { Spring: 1, Summer: 2, Fall: 3, Winter: 4 };
+      const baseOrder = parseInt(year) * 10;
+      const term_order = baseOrder + (termOrderMap[term] || 0);
+
+      const coursesInTerm = planCourses.filter(pc => pc.term === term && pc.year === year);
+      const maxPosition = coursesInTerm.length > 0 ? Math.max(...coursesInTerm.map(pc => pc.position)) : -1;
+
+      const { error } = await supabase.from('plan_courses').insert({
+        plan_id: planId,
+        course_id: course.id,
+        term,
+        year,
+        term_order,
+        position: maxPosition + 1,
+      });
+      if (error) throw error;
+
+      toast({ title: 'Added', description: `${course.course_code} added to ${term} ${year}` });
+    } catch (err: any) {
+      const msg = err instanceof z.ZodError ? err.errors[0].message : err.message;
+      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    }
+  };
+
+  // Derive conflict detection from current plan (NOT cart)
+  const { conflicts, hasConflicts } = useConflictDetection(
+    planCourses.map(pc => ({
+      id: pc.id,
+      course_code: pc.courses.course_code,
+      course_number: pc.courses.course_number || '',
+      title: pc.courses.title,
+      units: pc.courses.units,
+      term: pc.term,
+      year: pc.year,
+      schedule: pc.courses.schedule || []
+    }))
+  );
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -383,7 +555,7 @@ const Planner = () => {
     );
   }
 
-  const activeCourse = activeDragId 
+  const activeCourse = activeDragId
     ? planCourses.find(pc => pc.id === activeDragId)
     : null;
 
@@ -393,16 +565,20 @@ const Planner = () => {
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Button variant="ghost" onClick={() => navigate('/dashboard')} className="gap-2 text-primary-foreground hover:bg-primary-foreground/10">
-                <ArrowLeft className="w-4 h-4" />
-                Back
-              </Button>
               <div>
                 <h1 className="text-2xl font-bold text-primary-foreground">Course Planner</h1>
                 <p className="text-sm text-primary-foreground/80">Build your academic roadmap</p>
               </div>
             </div>
             <div className="flex gap-2">
+              <Button variant="secondary" className="gap-2" onClick={toggleCart}>
+                <ShoppingCart className="w-4 h-4" />
+                Cart
+              </Button>
+              <Button variant="secondary" className="gap-2" onClick={() => setShowPDFExport(true)}>
+                <Download className="w-4 h-4" />
+                Export
+              </Button>
               <Dialog open={addCourseOpen} onOpenChange={setAddCourseOpen}>
                 <DialogTrigger asChild>
                   <Button variant="secondary" className="gap-2">
@@ -436,8 +612,8 @@ const Planner = () => {
                     </div>
                     <div className="space-y-2">
                       <Label>Course</Label>
-                      <Select 
-                        value={selectedCourseId} 
+                      <Select
+                        value={selectedCourseId}
                         onValueChange={setSelectedCourseId}
                         disabled={!selectedDepartmentId}
                       >
@@ -483,7 +659,7 @@ const Planner = () => {
                   </div>
                   <DialogFooter>
                     <Button variant="outline" onClick={() => setAddCourseOpen(false)}>Cancel</Button>
-                    <Button onClick={handleAddCourse}>Add Course</Button>
+                    <Button onClick={handleAddToCart}>Add to Cart</Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
@@ -492,44 +668,156 @@ const Planner = () => {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
-        {terms.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <p className="text-muted-foreground mb-4">No courses in your plan yet</p>
-              <Button onClick={() => setAddCourseOpen(true)} className="gap-2">
-                <Plus className="w-4 h-4" />
-                Add Your First Course
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-          >
-            <div className="space-y-6">
-              {terms.map((term) => (
-                <TermCard key={`${term.year}-${term.term}`} term={term} onDeleteCourse={handleDeleteCourse} />
-              ))}
-            </div>
-            <DragOverlay>
-              {activeCourse ? (
-                <div className="flex items-center gap-4 p-4 rounded-lg border bg-card shadow-lg opacity-80">
-                  <GripVertical className="w-4 h-4 text-muted-foreground" />
-                  <div className="flex-1">
-                    <div className="font-semibold">{activeCourse.courses.course_code}</div>
-                    <div className="text-sm text-muted-foreground">{activeCourse.courses.title}</div>
-                  </div>
-                  <div className="text-sm text-muted-foreground">{activeCourse.courses.units} units</div>
-                </div>
-              ) : null}
-            </DragOverlay>
-          </DndContext>
+      {/* Split layout when cart open */}
+      <div className="flex w-full">
+        <div className={isCartOpen ? 'flex-1 overflow-hidden' : 'flex-1'}>
+          {/* Main planner content */}
+          <main className="container mx-auto px-4 py-8">
+            {/* Course Type Legend and Filters */}
+            {planCourses.length > 0 && (
+              <div className="mb-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Course Types</CardTitle>
+                    <CardDescription>Filter your courses by type</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <CourseTypeLegend layout="horizontal" />
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Conflict Alerts */}
+            {hasConflicts && (
+              <div className="mb-6">
+                <ConflictIndicator conflicts={conflicts} />
+              </div>
+            )}
+
+            {role === 'student' && (
+              <div className="mb-6 space-y-4">
+                <DisplayNotes notes={advisorNotes} emptyMessage="No advisor notes yet." />
+                <DisplaySuggestions suggestions={advisorSuggestions} emptyMessage="No advisor suggestions yet." />
+              </div>
+            )}
+
+            {terms.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <p className="text-muted-foreground mb-4">No courses in your plan yet</p>
+                  <Button onClick={() => setAddCourseOpen(true)} className="gap-2">
+                    <Plus className="w-4 h-4" />
+                    Add Your First Course
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-6">
+                {terms.map((term) => (
+                  <TermCard key={`${term.year}-${term.term}`} term={term} onDeleteCourse={handleDeleteCourse} />
+                ))}
+              </div>
+            )}
+          </main>
+        </div>
+
+        {isCartOpen && (
+          <>
+            {/* Drag handle */}
+            <div
+              onMouseDown={startDrag}
+              className="cursor-col-resize w-2 hover:bg-primary/30 transition-colors"
+              style={{ userSelect: 'none' }}
+            />
+            {/* Embedded cart */}
+            <CourseCart
+              layoutMode="split"
+              widthPx={cartWidth}
+              isOpen={true}
+              onToggle={toggleCart}
+              onFinalizePlan={async (courses) => {
+                if (!planId) {
+                  toast({
+                    title: 'No plan',
+                    description: 'Your plan could not be found.',
+                    variant: 'destructive',
+                  });
+                  return;
+                }
+                try {
+                  for (const course of courses) {
+                    const termOrderMap: Record<string, number> = {
+                      Spring: 1,
+                      Summer: 2,
+                      Fall: 3,
+                      Winter: 4
+                    };
+                    const baseOrder = parseInt(course.year) * 10;
+                    const term_order = baseOrder + (termOrderMap[course.term] || 0);
+                    const coursesInTerm = planCourses.filter(
+                      pc => pc.term === course.term && pc.year === course.year
+                    );
+                    const maxPosition = coursesInTerm.length
+                      ? Math.max(...coursesInTerm.map(pc => pc.position))
+                      : -1;
+
+                    const { error } = await supabase.from('plan_courses').insert({
+                      plan_id: planId,
+                      course_id: course.id,
+                      term: course.term,
+                      year: course.year,
+                      term_order,
+                      position: maxPosition + 1
+                    });
+                    if (error) throw error;
+                  }
+                  clearCart();
+                  toast({
+                    title: 'Plan Updated',
+                    description: `${courses.length} courses added to your plan.`
+                  });
+                } catch (err: any) {
+                  toast({
+                    title: 'Error',
+                    description: err.message,
+                    variant: 'destructive'
+                  });
+                }
+              }}
+              cartItems={cartItems}
+              addCourse={addCourse}
+              removeCourse={removeCourse}
+              clearCart={clearCart}
+              updateCoursePriority={updateCoursePriority}
+              updateCourseNotes={updateCourseNotes}
+              hideFab
+            />
+          </>
         )}
-      </main>
+      </div>
+
+      {/* PDF Export Dialog */}
+      {showPDFExport && (
+        <Dialog open={showPDFExport} onOpenChange={setShowPDFExport}>
+          <DialogContent className="max-w-2xl">
+            <SchedulePDFExporter
+              courses={getExportData().courses}
+              studentInfo={getExportData().studentInfo}
+              onExport={(success) => {
+                if (success) {
+                  toast({
+                    title: 'Export Successful',
+                    description: 'Schedule exported successfully!'
+                  });
+                }
+                setShowPDFExport(false);
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+
       <ChatbotWidget />
     </div>
   );
@@ -541,19 +829,8 @@ interface TermCardProps {
 }
 
 const TermCard = ({ term, onDeleteCourse }: TermCardProps) => {
-  const { setNodeRef } = useSortable({
-    id: `${term.year}-${term.term}`,
-    data: {
-      type: 'term',
-      term: term.term,
-      year: term.year,
-    },
-  });
-
-  const courseIds = term.courses.map(c => c.id);
-
   return (
-    <Card ref={setNodeRef} className="transition-colors hover:border-primary/30">
+    <Card className="transition-colors hover:border-primary/30">
       <CardHeader>
         <CardTitle>{term.term} {term.year}</CardTitle>
         <CardDescription>
@@ -561,70 +838,41 @@ const TermCard = ({ term, onDeleteCourse }: TermCardProps) => {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <SortableContext items={courseIds} strategy={verticalListSortingStrategy}>
-          <div className="space-y-2 min-h-[60px]">
-            {term.courses.map(planCourse => (
-              <DraggableCourse
-                key={planCourse.id}
-                planCourse={planCourse}
-                onDelete={onDeleteCourse}
-              />
-            ))}
-            {term.courses.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground text-sm">
-                Drop courses here
+        <div className="space-y-2 min-h-[60px]">
+          {term.courses.map(planCourse => (
+            <ColorCodedCourseCard
+              key={planCourse.id}
+              course={{
+                id: planCourse.id,
+                course_code: planCourse.courses.course_code,
+                course_number: planCourse.courses.course_number || '',
+                title: planCourse.courses.title,
+                units: planCourse.courses.units,
+                type: planCourse.courses.type || 'free-elective'
+              }}
+              className="cursor-pointer"
+            >
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDeleteCourse(planCourse.id)}
+                  className="text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+                {/* remove the incorrect Add to Plan button */}
               </div>
-            )}
-          </div>
-        </SortableContext>
+            </ColorCodedCourseCard>
+          ))}
+          {term.courses.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              No courses in this term
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
-  );
-};
-
-interface DraggableCourseProps {
-  planCourse: PlanCourse;
-  onDelete: (courseId: string) => void;
-}
-
-const DraggableCourse = ({ planCourse, onDelete }: DraggableCourseProps) => {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: planCourse.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="flex items-center gap-4 p-4 rounded-lg border bg-card hover:bg-accent/5 transition-colors cursor-move"
-    >
-      <div {...attributes} {...listeners}>
-        <GripVertical className="w-4 h-4 text-muted-foreground" />
-      </div>
-      <div className="flex-1">
-        <div className="font-semibold">{planCourse.courses.course_code}</div>
-        <div className="text-sm text-muted-foreground">{planCourse.courses.title}</div>
-      </div>
-      <div className="text-sm text-muted-foreground">{planCourse.courses.units} units</div>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => onDelete(planCourse.id)}
-      >
-        <Trash2 className="w-4 h-4 text-destructive" />
-      </Button>
-    </div>
   );
 };
 
