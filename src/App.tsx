@@ -17,6 +17,7 @@ import Transcript from "./pages/Transcript";
 import Messages from "./pages/Messages";
 import PendingApprovals from "./pages/PendingApprovals";
 import NotFound from "./pages/NotFound";
+import AdvisorSuggestionsReview from "./pages/AdvisorSuggestionsReview";
 
 const queryClient = new QueryClient();
 
@@ -39,6 +40,10 @@ const App = () => (
           <Route path="/messages" element={<Messages />} />
           <Route path="/advisor-tools" element={<AdvisorTools />} />
           <Route path="/pending-approvals" element={<PendingApprovals />} />
+          <Route
+            path="/advisor-suggestions-review"
+            element={<AdvisorSuggestionsReview />}
+          />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

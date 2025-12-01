@@ -59,16 +59,21 @@ const Transcript = () => {
     });
   };
 
-  const handleViewTranscript = (transcript: any) => {
-    if (transcript.file_url) {
-      // Open file in new tab
-      window.open(transcript.file_url, '_blank');
-    } else {
-      toast({
-        title: "Error",
-        description: "File URL not found",
-        variant: "destructive"
-      });
+  const handleViewTranscript = async (transcript: any) => {
+    const path = transcript.file_url; // now stores storage object path
+    if (!path) {
+      toast({ title: 'Error', description: 'File path missing', variant: 'destructive' });
+      return;
+    }
+    try {
+      // Generate short-lived signed URL (1 hour)
+      const { data, error } = await supabase.storage
+        .from('transcripts')
+        .createSignedUrl(path, 60 * 60);
+      if (error || !data?.signedUrl) throw error || new Error('No signed URL');
+      window.open(data.signedUrl, '_blank');
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message || 'Unable to generate signed URL', variant: 'destructive' });
     }
   };
 
@@ -129,7 +134,7 @@ const Transcript = () => {
                       </div>
                       {transcript.file_url && (
                         <div className="text-xs text-muted-foreground mt-1">
-                          File available for viewing
+                          File ready (signed URL generated on view)
                         </div>
                       )}
                     </div>

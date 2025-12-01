@@ -12,6 +12,7 @@ export interface AdvisorNote {
 export interface CreateNoteData {
   student_id: string;
   content: string;
+  plan_id?: string;
 }
 
 export const addAdvisorNote = async (noteData: CreateNoteData): Promise<AdvisorNote> => {
@@ -37,7 +38,8 @@ export const addAdvisorNote = async (noteData: CreateNoteData): Promise<AdvisorN
     .insert({
       advisor_id: user.id,
       student_id: noteData.student_id,
-      content: noteData.content.trim()
+      plan_id: noteData.plan_id || null,
+      content: noteData.content
     })
     .select()
     .single();

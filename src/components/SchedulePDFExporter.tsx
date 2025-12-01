@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { FileDown, Printer, Calendar, Clock, User, GraduationCap } from 'lucide-react';
+import { FileDown, Calendar, Clock, User, GraduationCap } from 'lucide-react';
 import { CourseType, courseTypeConfigs } from '@/components/CourseColorCoding';
 
 interface Course {
@@ -202,20 +202,6 @@ export const SchedulePDFExporter: React.FC<SchedulePDFExporterProps> = ({
     return content;
   };
 
-  const handlePrint = () => {
-    const htmlContent = generateHTMLContent();
-    const printWindow = window.open('', '_blank');
-
-    if (printWindow) {
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-      printWindow.onload = () => {
-        printWindow.print();
-        printWindow.close();
-      };
-    }
-  };
-
   const handleDownloadPDF = async () => {
     try {
       setIsExporting(true);
@@ -343,11 +329,6 @@ export const SchedulePDFExporter: React.FC<SchedulePDFExporterProps> = ({
 
         {/* Export Actions */}
         <div className="flex gap-3">
-          <Button onClick={handlePrint} variant="outline" className="flex-1">
-            <Printer className="w-4 h-4 mr-2" />
-            Print Schedule
-          </Button>
-
           <Button
             onClick={handleDownloadPDF}
             disabled={isExporting || courses.length === 0}
@@ -365,3 +346,4 @@ export const SchedulePDFExporter: React.FC<SchedulePDFExporterProps> = ({
     </Card>
   );
 };
+

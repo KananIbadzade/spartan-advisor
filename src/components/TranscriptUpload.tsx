@@ -44,6 +44,14 @@ export const TranscriptUpload: React.FC<TranscriptUploadProps> = ({
     return null;
   };
 
+  const sanitizeName = (name: string) => {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  };
+
   const uploadFile = async (file: File) => {
     try {
       setIsUploading(true);
@@ -62,10 +70,14 @@ export const TranscriptUpload: React.FC<TranscriptUploadProps> = ({
         throw new Error('You must be logged in to upload transcripts');
       }
 
-      // Create unique filename
-      const fileExtension = file.name.split('.').pop();
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const fileName = `${user.id}/${timestamp}_transcript.${fileExtension}`;
+      // Create readable unique filename: transcript_YYYY-MM-DD_HHMM_student_<shortid>_<original>.pdf
+      const fileExtension = (file.name.split('.').pop() || 'pdf').toLowerCase();
+      const now = new Date();
+      const datePart = now.toISOString().slice(0,10); // YYYY-MM-DD
+      const timePart = now.toISOString().slice(11,16).replace(':',''); // HHMM
+      const shortId = user.id.slice(0,8);
+      const originalBase = sanitizeName(file.name.replace(/\.[^.]+$/, ''));
+      const fileName = `${user.id}/transcript_${datePart}_${timePart}_student_${shortId}_${originalBase}.${fileExtension}`;
 
       // Upload to Supabase Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -82,21 +94,12 @@ export const TranscriptUpload: React.FC<TranscriptUploadProps> = ({
         throw new Error(`Upload failed: ${uploadError.message}`);
       }
 
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from('transcripts')
-        .getPublicUrl(fileName);
-
-      if (!urlData?.publicUrl) {
-        throw new Error('Failed to get file URL');
-      }
-
-      // Save transcript record to database
+      // Store storage path instead of public URL (bucket kept private; signed URL generated on demand)
       const { error: dbError } = await supabase
         .from('transcripts')
         .upsert({
           user_id: user.id,
-          file_url: urlData.publicUrl,
+          file_url: fileName, // repurposed column holds object path
           uploaded_at: new Date().toISOString()
         });
 
@@ -107,7 +110,7 @@ export const TranscriptUpload: React.FC<TranscriptUploadProps> = ({
       // Success
       setUploadedFile(file.name);
       setUploadProgress(100);
-      onUploadComplete?.(urlData.publicUrl, file.name);
+      onUploadComplete?.(fileName, file.name);
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Upload failed';

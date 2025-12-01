@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import RoleBadge from '@/components/RoleBadge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { DisplayNotes, DisplaySuggestions } from '@/components/AdvisorNotes';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -424,6 +425,20 @@ const Dashboard = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* Advisor Feedback - Only show if notes or suggestions exist */}
+        {roles.some(r => r.role === 'student') && (/* show only if notes or suggestions exist later */ false) && (
+          <Card className="hover:shadow-card transition-all">
+            <CardHeader>
+              <CardTitle className="text-lg">Advisor Feedback</CardTitle>
+              <CardDescription>Notes & course suggestions from your advisor</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <DisplayNotes notes={[]} emptyMessage="No notes yet" />
+              <DisplaySuggestions suggestions={[]} emptyMessage="No suggestions yet" />
+            </CardContent>
+          </Card>
+        )}
       </main>
     </div>
   );

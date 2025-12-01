@@ -80,7 +80,9 @@ export const timeUtils = {
 };
 
 // Main conflict detection function
-export const detectCourseConflicts = (courses: Course[]): ConflictInfo[] => {
+export const detectCourseConflicts = (courses: Course[]) => {
+  if (!courses || courses.length === 0) return { conflicts: [], hasConflicts: false };
+
   const conflicts: ConflictInfo[] = [];
   const conflictMap = new Map<string, ConflictInfo>();
 

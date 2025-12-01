@@ -20,6 +20,8 @@ export interface CourseTypeConfig {
   textColor: string;
   icon: React.ReactNode;
   description: string;
+  // New: actual hex color for accents
+  hex: string;
 }
 
 // Course type configurations with colors and styling
@@ -31,7 +33,8 @@ export const courseTypeConfigs: Record<CourseType, CourseTypeConfig> = {
     borderColor: 'border-blue-200',
     textColor: 'text-blue-800',
     icon: <GraduationCap className="w-4 h-4" />,
-    description: 'Required courses for your major'
+    description: 'Required courses for your major',
+    hex: '#2563eb' // blue-600
   },
   'major-elective': {
     label: 'Major Elective',
@@ -40,7 +43,8 @@ export const courseTypeConfigs: Record<CourseType, CourseTypeConfig> = {
     borderColor: 'border-blue-100',
     textColor: 'text-blue-700',
     icon: <BookOpen className="w-4 h-4" />,
-    description: 'Elective courses within your major'
+    description: 'Elective courses within your major',
+    hex: '#60a5fa' // blue-400
   },
   'general-education': {
     label: 'General Education',
@@ -49,7 +53,8 @@ export const courseTypeConfigs: Record<CourseType, CourseTypeConfig> = {
     borderColor: 'border-purple-200',
     textColor: 'text-purple-800',
     icon: <Users className="w-4 h-4" />,
-    description: 'General education requirements'
+    description: 'General education requirements',
+    hex: '#9333ea' // purple-600
   },
   'prerequisite': {
     label: 'Prerequisite',
@@ -58,7 +63,8 @@ export const courseTypeConfigs: Record<CourseType, CourseTypeConfig> = {
     borderColor: 'border-orange-200',
     textColor: 'text-orange-800',
     icon: <AlertCircle className="w-4 h-4" />,
-    description: 'Required before taking other courses'
+    description: 'Required before taking other courses',
+    hex: '#ea580c' // orange-600
   },
   'free-elective': {
     label: 'Free Elective',
@@ -67,7 +73,8 @@ export const courseTypeConfigs: Record<CourseType, CourseTypeConfig> = {
     borderColor: 'border-green-200',
     textColor: 'text-green-800',
     icon: <Star className="w-4 h-4" />,
-    description: 'Courses of your choice'
+    description: 'Courses of your choice',
+    hex: '#16a34a' // green-600
   },
   'corequisite': {
     label: 'Corequisite',
@@ -76,7 +83,8 @@ export const courseTypeConfigs: Record<CourseType, CourseTypeConfig> = {
     borderColor: 'border-yellow-200',
     textColor: 'text-yellow-800',
     icon: <Zap className="w-4 h-4" />,
-    description: 'Must be taken with another course'
+    description: 'Must be taken with another course',
+    hex: '#ca8a04' // yellow-600
   }
 };
 
@@ -166,7 +174,8 @@ export const ColorCodedCourseCard: React.FC<ColorCodedCourseCardProps> = ({
         className
       )}
       onClick={onClick}
-      style={{ borderLeftColor: config.color.replace('bg-', '#') }}
+      // Use real hex for the left accent
+      style={{ borderLeftColor: config.hex }}
     >
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -219,7 +228,8 @@ export const CourseTypeLegend: React.FC<CourseTypeLegendProps> = ({
         <div key={type} className="flex items-center gap-2">
           <div
             className="w-4 h-4 rounded"
-            style={{ backgroundColor: courseTypeConfigs[type].color.replace('bg-', '#') }}
+            // Use hex for the swatch instead of deriving from Tailwind class
+            style={{ backgroundColor: courseTypeConfigs[type].hex }}
           />
           <div className="flex-1">
             <span className="text-sm font-medium">{courseTypeConfigs[type].label}</span>
