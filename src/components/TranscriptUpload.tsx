@@ -70,6 +70,32 @@ export const TranscriptUpload: React.FC<TranscriptUploadProps> = ({
         throw new Error('You must be logged in to upload transcripts');
       }
 
+      // Enforce single transcript policy: Delete any existing transcripts for this user
+      // This handles cleanup of old/duplicate files before adding the new one
+      const { data: existingTranscripts } = await supabase
+        .from('transcripts')
+        .select('id, file_url')
+        .eq('user_id', user.id);
+
+      if (existingTranscripts && existingTranscripts.length > 0) {
+        // Delete files from storage
+        const filesToRemove = existingTranscripts
+          .map(t => t.file_url)
+          .filter(url => !!url);
+        
+        if (filesToRemove.length > 0) {
+          await supabase.storage
+            .from('transcripts')
+            .remove(filesToRemove);
+        }
+
+        // Delete records from DB
+        await supabase
+          .from('transcripts')
+          .delete()
+          .eq('user_id', user.id);
+      }
+
       // Create readable unique filename: transcript_YYYY-MM-DD_HHMM_student_<shortid>_<original>.pdf
       const fileExtension = (file.name.split('.').pop() || 'pdf').toLowerCase();
       const now = new Date();
