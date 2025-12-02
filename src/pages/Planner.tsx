@@ -166,7 +166,18 @@ const Planner = () => {
     loadAllCourses();
     loadDepartments();
     const cleanup = setupRealtimeSubscription();
-    return cleanup;
+
+    // Listen for chatbot plan changes
+    const handlePlannerChanged = () => {
+      console.log('[PLANNER] Refresh triggered by chatbot');
+      loadPlan();
+    };
+    window.addEventListener('plannerChanged', handlePlannerChanged);
+
+    return () => {
+      cleanup();
+      window.removeEventListener('plannerChanged', handlePlannerChanged);
+    };
   }, []);
 
   useEffect(() => {
