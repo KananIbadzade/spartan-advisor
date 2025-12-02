@@ -235,6 +235,7 @@ export type Database = {
           student_id: string | null
           updated_at: string
           year_in_school: string | null
+          avatar_url: string | null
         }
         Insert: {
           catalog_year?: string | null
@@ -248,6 +249,7 @@ export type Database = {
           student_id?: string | null
           updated_at?: string
           year_in_school?: string | null
+          avatar_url?: string | null
         }
         Update: {
           catalog_year?: string | null
@@ -261,6 +263,7 @@ export type Database = {
           student_id?: string | null
           updated_at?: string
           year_in_school?: string | null
+          avatar_url?: string | null
         }
         Relationships: []
       }

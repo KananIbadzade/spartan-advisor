@@ -26,6 +26,8 @@ interface UserProfile {
     status: string;
     created_at: string;
   }>;
+  avatar_url?: string | null;
+  avatar_signed_url?: string | null;
 }
 
 const Admin = () => {
@@ -36,6 +38,7 @@ const Admin = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [currentAdminAvatar, setCurrentAdminAvatar] = useState<string | null>(null);
 
   useEffect(() => {
     checkAdminAccess();
@@ -68,6 +71,19 @@ const Admin = () => {
       }
 
       setIsAdmin(true);
+      // fetch current admin profile for avatar display in header
+      try {
+        const { data: adminProfile } = await supabase
+          .from('profiles')
+          .select('avatar_url')
+          .eq('id', user.id)
+          .single();
+
+        if (adminProfile?.avatar_url) {
+          const { data: signed, error: sError } = await supabase.storage.from('avatars').createSignedUrl(adminProfile.avatar_url, 60 * 60);
+          if (!sError && signed?.signedUrl) setCurrentAdminAvatar(signed.signedUrl);
+        }
+      } catch (e) { /* ignore */ }
       fetchAllUsers();
 
       // Show onboarding for first-time admins only (persist opt-out in localStorage)
@@ -113,6 +129,7 @@ const Admin = () => {
         catalog_year: profile.catalog_year,
         year_in_school: profile.year_in_school,
         department: profile.department,
+        avatar_url: profile.avatar_url || null,
         roles: allRoles?.filter(role => role.user_id === profile.id).map(role => ({
           id: role.id,
           role: role.role,
@@ -122,6 +139,30 @@ const Admin = () => {
       })) || [];
 
       setUsers(formattedUsers);
+
+      // Resolve signed URLs for avatars (if any)
+      const resolved = await Promise.all(formattedUsers.map(async (u) => {
+        if (!u.avatar_url) return u;
+
+        // If the stored avatar_url is already a full URL (from older uploads), use it directly
+        if (typeof u.avatar_url === 'string' && (u.avatar_url.startsWith('http://') || u.avatar_url.startsWith('https://'))) {
+          return { ...u, avatar_signed_url: u.avatar_url };
+        }
+
+        try {
+          const { data: signed, error: sError } = await supabase.storage.from('avatars').createSignedUrl(u.avatar_url, 60 * 60);
+          if (!sError && signed?.signedUrl) {
+            return { ...u, avatar_signed_url: signed.signedUrl };
+          }
+          if (sError) console.warn('Failed to create signed URL for', u.id, sError.message || sError);
+        } catch (e) {
+          console.warn('Error resolving avatar signed URL for', u.id, e);
+        }
+
+        return u;
+      }));
+
+      setUsers(resolved);
     } catch (error: any) {
       console.error('Error fetching users:', error);
       toast({
@@ -161,7 +202,13 @@ const Admin = () => {
             Back to Dashboard
           </Button>
           <div className="flex items-center gap-3">
-            <Shield className="w-8 h-8 text-primary-foreground" />
+            <div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex items-center justify-center">
+              {currentAdminAvatar ? (
+                <img src={currentAdminAvatar} alt="admin avatar" className="w-full h-full object-cover" />
+              ) : (
+                <Shield className="w-8 h-8 text-primary-foreground" />
+              )}
+            </div>
             <div className="ml-auto flex items-center gap-2">
               <Button variant="ghost" onClick={() => setShowOnboarding(true)} className="gap-2 text-primary-foreground hover:bg-primary-foreground/10">
                 <HelpCircle className="w-4 h-4" />
@@ -230,8 +277,15 @@ const Admin = () => {
                               </Button>
                             </CollapsibleTrigger>
                           </TableCell>
-                          <TableCell className="font-medium">
-                            {user.first_name} {user.last_name}
+                          <TableCell className="font-medium flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex items-center justify-center">
+                              {user.avatar_signed_url ? (
+                                <img src={user.avatar_signed_url} alt="avatar" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="text-xs text-muted-foreground">{(user.first_name?.[0] || '') + (user.last_name?.[0] || '')}</div>
+                              )}
+                            </div>
+                            <div>{user.first_name} {user.last_name}</div>
                           </TableCell>
                           <TableCell>{user.email}</TableCell>
                           <TableCell>
