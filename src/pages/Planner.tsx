@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Plus, Trash2, GripVertical, ShoppingCart, Download } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { ArrowLeft, Plus, Trash2, GripVertical, ShoppingCart, Download, Clock, XCircle, FileText } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,9 +20,10 @@ import { ChatbotWidget } from '@/components/ChatbotWidget';
 // Import your new components
 import { CourseCart, useCourseCart, useCourseCartManager } from '@/components/CourseCart';
 import { ConflictIndicator, useConflictDetection } from '@/components/ConflictDetector';
-import { CourseTypeBadge, ColorCodedCourseCard, CourseTypeLegend, useCourseTypeFilter } from '@/components/CourseColorCoding';
+import { CourseTypeBadge, ColorCodedCourseCard, CourseTypeLegend, courseTypeConfigs, CourseType } from '@/components/CourseColorCoding';
 import { SchedulePDFExporter } from '@/components/SchedulePDFExporter';
-import { DisplayNotes, DisplaySuggestions } from '@/components/AdvisorNotes'; // adjust if needed
+import { DisplaySuggestions } from '@/components/DisplaySuggestions';
+import { PlanDiscussion } from '@/components/PlanDiscussion';
 
 const planCourseSchema = z.object({
   term: z.enum(['Fall', 'Spring', 'Summer', 'Winter'], {
@@ -40,6 +43,13 @@ interface Department {
   name: string;
 }
 
+interface CourseTime {
+  day: string;
+  startTime: string;
+  endTime: string;
+  room?: string;
+}
+
 interface Course {
   id: string;
   course_code: string;
@@ -48,6 +58,7 @@ interface Course {
   units: number;
   department_id: string | null;
   type?: any; // Course type for color coding
+  schedule?: CourseTime[]; // Class meeting times
 }
 
 interface PlanCourse {
@@ -58,6 +69,7 @@ interface PlanCourse {
   year: string;
   term_order: number;
   position: number;
+  status: 'draft' | 'submitted' | 'approved' | 'declined';
   courses: Course;
 }
 
@@ -73,6 +85,7 @@ const Planner = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [planId, setPlanId] = useState<string | null>(null);
+  const [planStatus, setPlanStatus] = useState<'draft' | 'submitted' | 'approved' | 'declined'>('draft');
   const [planCourses, setPlanCourses] = useState<PlanCourse[]>([]);
   const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -81,6 +94,33 @@ const Planner = () => {
   const [role, setRole] = useState<string | null>(null);
   const [advisorNotes, setAdvisorNotes] = useState<any[]>([]);
   const [advisorSuggestions, setAdvisorSuggestions] = useState<any[]>([]);
+
+  // Course type filtering state
+  const [selectedTypes, setSelectedTypes] = useState<CourseType[]>(
+    Object.keys(courseTypeConfigs) as CourseType[]
+  );
+
+  // Filter plan courses based on selected types
+  const filteredPlanCourses = useMemo(() => {
+    return planCourses.filter(planCourse => {
+      const courseType = planCourse.courses.type || 'free-elective';
+      return selectedTypes.includes(courseType);
+    });
+  }, [planCourses, selectedTypes]);
+
+  // Toggle type filter
+  const toggleType = (type: CourseType) => {
+    setSelectedTypes(prev =>
+      prev.includes(type)
+        ? prev.filter(t => t !== type)
+        : [...prev, type]
+    );
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
+    setSelectedTypes(Object.keys(courseTypeConfigs) as CourseType[]);
+  };
 
   // Add term dialog state
   const [addTermOpen, setAddTermOpen] = useState(false);
@@ -153,7 +193,7 @@ const Planner = () => {
 
   useEffect(() => {
     organizeCoursesByTerm();
-  }, [planCourses]);
+  }, [filteredPlanCourses]);
 
   useEffect(() => {
     const loadRole = async () => {
@@ -203,6 +243,25 @@ const Planner = () => {
           loadPlan();
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'student_plans'
+        },
+        (payload) => {
+          // When plan status changes (advisor approves/declines), update local state
+          if (payload.new && payload.new.id === planId) {
+            setPlanStatus(payload.new.status || 'draft');
+            toast({
+              title: 'Plan Status Updated',
+              description: `Your plan has been ${payload.new.status === 'approved' ? 'approved' : payload.new.status === 'declined' ? 'declined' : 'updated'} by your advisor.`,
+              variant: payload.new.status === 'approved' ? 'default' : payload.new.status === 'declined' ? 'destructive' : 'default'
+            });
+          }
+        }
+      )
       .subscribe();
 
     return () => {
@@ -236,8 +295,10 @@ const Planner = () => {
 
         if (createError) throw createError;
         setPlanId(newPlan.id);
+        setPlanStatus(newPlan.status || 'draft');
       } else {
         setPlanId(plans[0].id);
+        setPlanStatus(plans[0].status || 'draft');
       }
 
       // Load plan courses with enhanced data for conflict detection
@@ -245,7 +306,14 @@ const Planner = () => {
         const { data: courses } = await supabase
           .from('plan_courses')
           .select(`
-            *,
+            id,
+            plan_id,
+            course_id,
+            term,
+            year,
+            term_order,
+            position,
+            status,
             courses(
               *,
               departments(code, name)
@@ -255,15 +323,28 @@ const Planner = () => {
           .order('term_order')
           .order('position');
 
-        // Add course types and sample schedule data for demo
-        const enhancedCourses = (courses || []).map(course => ({
-          ...course,
-          courses: {
-            ...course.courses,
-            type: determineCourseType(course.courses),
-            schedule: generateSampleSchedule(course.courses)
-          }
-        }));
+        // Add course types for color coding
+        const enhancedCourses = (courses || []).map(course => {
+          // Recalculate term_order to ensure correct sorting
+          const termOrderMap: { [key: string]: number } = {
+            'Spring': 1,
+            'Summer': 2,
+            'Fall': 3,
+            'Winter': 4
+          };
+          const baseOrder = parseInt(course.year) * 10;
+          const calculatedTermOrder = baseOrder + (termOrderMap[course.term] || 0);
+
+          return {
+            ...course,
+            term_order: calculatedTermOrder, // Use recalculated value
+            courses: {
+              ...course.courses,
+              type: determineCourseType(course.courses),
+              schedule: course.courses.schedule || [] // Use real schedule from database if available
+            }
+          };
+        });
 
         setPlanCourses(enhancedCourses);
       }
@@ -286,21 +367,12 @@ const Planner = () => {
     return 'free-elective';
   };
 
-  // Generate sample schedule for conflict detection demo
-  const generateSampleSchedule = (course: any) => {
-    const schedules = [
-      [{ day: 'Monday', startTime: '10:00 AM', endTime: '11:15 AM', room: 'ENG 101' }],
-      [{ day: 'Tuesday', startTime: '2:00 PM', endTime: '3:15 PM', room: 'SCI 201' }],
-      [{ day: 'Wednesday', startTime: '10:00 AM', endTime: '11:15 AM', room: 'ENG 102' }]
-    ];
-    return schedules[Math.floor(Math.random() * schedules.length)];
-  };
-
   const loadAllCourses = async () => {
     const { data } = await supabase
       .from('courses')
       .select('*')
-      .order('course_code');
+      .order('course_code')
+      .order('course_number'); // Added sort by number
 
     setAllCourses(data || []);
   };
@@ -317,7 +389,8 @@ const Planner = () => {
   const organizeCoursesByTerm = () => {
     const termMap = new Map<string, TermGroup>();
 
-    planCourses.forEach(pc => {
+    // Use filtered courses instead of all planCourses
+    filteredPlanCourses.forEach(pc => {
       const key = `${pc.year}-${pc.term}`;
       if (!termMap.has(key)) {
         termMap.set(key, {
@@ -330,7 +403,7 @@ const Planner = () => {
       termMap.get(key)!.courses.push(pc);
     });
 
-    const sortedTerms = Array.from(termMap.values()).sort((a, b) => a.term_order - b.term_order);
+    const sortedTerms = Array.from(termMap.values()).sort((a, b) => b.term_order - a.term_order);
     setTerms(sortedTerms);
   };
 
@@ -374,7 +447,8 @@ const Planner = () => {
           term: validatedData.term,
           year: validatedData.year,
           term_order: termOrder,
-          position: maxPosition + 1
+          position: maxPosition + 1,
+          status: 'draft'
         });
 
       if (error) throw error;
@@ -461,6 +535,9 @@ const Planner = () => {
 
       if (error) throw error;
 
+      // Update local state immediately for instant feedback
+      setPlanCourses(prev => prev.filter(c => c.id !== courseId));
+
       toast({
         title: 'Success',
         description: 'Course removed from plan',
@@ -523,6 +600,7 @@ const Planner = () => {
         year,
         term_order,
         position: maxPosition + 1,
+        status: 'draft',
       });
       if (error) throw error;
 
@@ -565,6 +643,14 @@ const Planner = () => {
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                onClick={() => navigate('/dashboard')}
+                className="gap-2 text-primary-foreground hover:bg-primary-foreground/10"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back
+              </Button>
               <div>
                 <h1 className="text-2xl font-bold text-primary-foreground">Course Planner</h1>
                 <p className="text-sm text-primary-foreground/80">Build your academic roadmap</p>
@@ -625,7 +711,7 @@ const Planner = () => {
                             .filter(course => course.department_id === selectedDepartmentId)
                             .map(course => (
                               <SelectItem key={course.id} value={course.id}>
-                                {course.course_code} - {course.title} ({course.units} units)
+                                {course.course_code} {course.course_number} - {course.title} ({course.units} units)
                               </SelectItem>
                             ))}
                         </SelectContent>
@@ -673,18 +759,27 @@ const Planner = () => {
         <div className={isCartOpen ? 'flex-1 overflow-hidden' : 'flex-1'}>
           {/* Main planner content */}
           <main className="container mx-auto px-4 py-8">
-            {/* Course Type Legend and Filters */}
+            {/* Course Type Legend */}
             {planCourses.length > 0 && (
-              <div className="mb-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Course Types</CardTitle>
-                    <CardDescription>Filter your courses by type</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <CourseTypeLegend layout="horizontal" />
-                  </CardContent>
-                </Card>
+              <div className="mb-4">
+                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <span className="font-medium">Course Types:</span>
+                  {(Object.keys(courseTypeConfigs) as CourseType[]).map(type => {
+                    const config = courseTypeConfigs[type];
+                    return (
+                      <div
+                        key={type}
+                        className="flex items-center gap-1.5"
+                      >
+                        <div
+                          className="w-2 h-2 rounded"
+                          style={{ backgroundColor: config.hex }}
+                        />
+                        <span>{config.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
@@ -695,11 +790,130 @@ const Planner = () => {
               </div>
             )}
 
-            {role === 'student' && (
-              <div className="mb-6 space-y-4">
-                <DisplayNotes notes={advisorNotes} emptyMessage="No advisor notes yet." />
-                <DisplaySuggestions suggestions={advisorSuggestions} emptyMessage="No advisor suggestions yet." />
+            {role === 'student' && user && (
+              <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <PlanDiscussion studentId={user.id} currentUserRole="student" />
+                <DisplaySuggestions studentId={user.id} currentUserRole="student" />
               </div>
+            )}
+
+            {/* Plan Status Alerts and Actions */}
+            {planStatus === 'declined' && (
+              <Card className="mb-6 border-destructive bg-destructive/5">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-4">
+                    <XCircle className="w-6 h-6 text-destructive flex-shrink-0 mt-1" />
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-destructive mb-2">Plan Declined</h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Your advisor has declined this plan. Please review their feedback, make necessary changes, and resubmit when ready.
+                      </p>
+                      <Button
+                        onClick={async () => {
+                          try {
+                            // First, update all draft courses to submitted
+                            const { error: coursesError } = await supabase
+                              .from('plan_courses')
+                              .update({ status: 'submitted' } as any)
+                              .eq('plan_id', planId)
+                              .eq('status', 'draft');
+
+                            if (coursesError) throw coursesError;
+
+                            // Then update the plan status
+                            const { error } = await supabase
+                              .from('student_plans')
+                              .update({
+                                status: 'submitted',
+                                submitted_at: new Date().toISOString()
+                              })
+                              .eq('id', planId);
+
+                            if (error) throw error;
+
+                            setPlanStatus('submitted');
+                            toast({
+                              title: 'Plan Resubmitted',
+                              description: 'Your plan has been sent to your advisor for review.'
+                            });
+                          } catch (err: any) {
+                            toast({
+                              title: 'Error',
+                              description: err.message,
+                              variant: 'destructive'
+                            });
+                          }
+                        }}
+                        className="gap-2"
+                      >
+                        <FileText className="w-4 h-4" />
+                        Submit to Advisor
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {(planStatus === 'draft' || planStatus === 'approved') && terms.length > 0 && planStatus !== 'submitted' && (
+              <Card className="mb-6 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-4">
+                    <FileText className="w-6 h-6 text-primary flex-shrink-0 mt-1" />
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-primary mb-2">
+                        {planStatus === 'approved' ? 'Approved Plan - Ready to Submit Changes' : 'Draft Plan'}
+                      </h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        {planStatus === 'approved'
+                          ? 'Your plan was previously approved. If you\'ve made changes, submit it again for advisor review.'
+                          : 'Your plan is currently in draft mode. When you\'re ready, submit it to your advisor for approval.'}
+                      </p>
+                      <Button
+                        onClick={async () => {
+                          try {
+                            // First, update all draft courses to submitted
+                            const { error: coursesError } = await supabase
+                              .from('plan_courses')
+                              .update({ status: 'submitted' } as any)
+                              .eq('plan_id', planId)
+                              .eq('status', 'draft');
+
+                            if (coursesError) throw coursesError;
+
+                            // Then update the plan status
+                            const { error } = await supabase
+                              .from('student_plans')
+                              .update({
+                                status: 'submitted',
+                                submitted_at: new Date().toISOString()
+                              })
+                              .eq('id', planId);
+
+                            if (error) throw error;
+
+                            setPlanStatus('submitted');
+                            toast({
+                              title: planStatus === 'approved' ? 'Changes Submitted' : 'Plan Submitted',
+                              description: 'Your plan has been sent to your advisor for review.'
+                            });
+                          } catch (err: any) {
+                            toast({
+                              title: 'Error',
+                              description: err.message,
+                              variant: 'destructive'
+                            });
+                          }
+                        }}
+                        className="gap-2"
+                      >
+                        <FileText className="w-4 h-4" />
+                        {planStatus === 'approved' ? 'Submit Changes to Advisor' : 'Submit to Advisor'}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             )}
 
             {terms.length === 0 ? (
@@ -715,7 +929,7 @@ const Planner = () => {
             ) : (
               <div className="space-y-6">
                 {terms.map((term) => (
-                  <TermCard key={`${term.year}-${term.term}`} term={term} onDeleteCourse={handleDeleteCourse} />
+                  <TermCard key={`${term.year}-${term.term}`} term={term} onDeleteCourse={handleDeleteCourse} planStatus={planStatus} />
                 ))}
               </div>
             )}
@@ -736,7 +950,7 @@ const Planner = () => {
               widthPx={cartWidth}
               isOpen={true}
               onToggle={toggleCart}
-              onFinalizePlan={async (courses) => {
+              onFinalizePlan={async (courses, submitToAdvisor = false) => {
                 if (!planId) {
                   toast({
                     title: 'No plan',
@@ -746,6 +960,7 @@ const Planner = () => {
                   return;
                 }
                 try {
+                  // Insert courses
                   for (const course of courses) {
                     const termOrderMap: Record<string, number> = {
                       Spring: 1,
@@ -768,15 +983,71 @@ const Planner = () => {
                       term: course.term,
                       year: course.year,
                       term_order,
-                      position: maxPosition + 1
+                      position: maxPosition + 1,
+                      status: 'draft'
                     });
                     if (error) throw error;
                   }
+
+                  // Save original status for toast message
+                  const previousStatus = planStatus;
+
+                  // Update plan status based on submit toggle and current status
+                  if (submitToAdvisor) {
+                    // Submitting to advisor - first update draft courses to submitted
+                    const { error: coursesError } = await supabase
+                      .from('plan_courses')
+                      .update({ status: 'submitted' } as any)
+                      .eq('plan_id', planId)
+                      .eq('status', 'draft');
+
+                    if (coursesError) throw coursesError;
+
+                    // Then update plan status
+                    const { error: updateError } = await supabase
+                      .from('student_plans')
+                      .update({
+                        status: 'submitted',
+                        submitted_at: new Date().toISOString()
+                      })
+                      .eq('id', planId);
+
+                    if (updateError) throw updateError;
+                    setPlanStatus('submitted');
+                  } else if (planStatus === 'submitted' || planStatus === 'approved') {
+                    // If modifying a submitted/approved plan without resubmitting,
+                    // change to draft so student knows they need to resubmit
+                    const { error: updateError } = await supabase
+                      .from('student_plans')
+                      .update({
+                        status: 'draft'
+                      })
+                      .eq('id', planId);
+
+                    if (updateError) throw updateError;
+                    setPlanStatus('draft');
+                  }
+                  // If already draft or declined, keep that status
+
                   clearCart();
-                  toast({
-                    title: 'Plan Updated',
-                    description: `${courses.length} courses added to your plan.`
-                  });
+
+                  // Show appropriate message based on context
+                  if (submitToAdvisor) {
+                    toast({
+                      title: 'Plan Submitted',
+                      description: `${courses.length} courses added and submitted to your advisor for review.`
+                    });
+                  } else if (previousStatus === 'approved' || previousStatus === 'submitted') {
+                    toast({
+                      title: 'Courses Added - Plan Now Draft',
+                      description: `${courses.length} courses added. Your plan has been changed to draft. Submit when ready for review.`,
+                    });
+                  } else {
+                    toast({
+                      title: 'Plan Updated',
+                      description: `${courses.length} courses added to your plan.`
+                    });
+                  }
                 } catch (err: any) {
                   toast({
                     title: 'Error',
@@ -826,16 +1097,37 @@ const Planner = () => {
 interface TermCardProps {
   term: TermGroup;
   onDeleteCourse: (courseId: string) => void;
+  planStatus: 'draft' | 'submitted' | 'approved' | 'declined';
 }
 
-const TermCard = ({ term, onDeleteCourse }: TermCardProps) => {
+const TermCard = ({ term, onDeleteCourse, planStatus }: TermCardProps) => {
+  const { toast } = useToast();
+
+  // Helper function to get course-level status badge
+  const getCourseStatusBadge = (status: 'draft' | 'submitted' | 'approved' | 'declined') => {
+    switch (status) {
+      case 'approved':
+        return <Badge className="bg-green-100 text-green-800 border-green-300 text-xs">✓ Approved</Badge>;
+      case 'declined':
+        return <Badge className="bg-red-100 text-red-800 border-red-300 text-xs">✗ Declined</Badge>;
+      case 'submitted':
+        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300 text-xs">⏳ Pending</Badge>;
+      default:
+        return <Badge variant="outline" className="text-xs">Draft</Badge>;
+    }
+  };
+
   return (
     <Card className="transition-colors hover:border-primary/30">
       <CardHeader>
-        <CardTitle>{term.term} {term.year}</CardTitle>
-        <CardDescription>
-          {term.courses.reduce((sum, c) => sum + c.courses.units, 0)} total units
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>{term.term} {term.year}</CardTitle>
+            <CardDescription>
+              {term.courses.reduce((sum, c) => sum + c.courses.units, 0)} total units
+            </CardDescription>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-2 min-h-[60px]">
@@ -852,7 +1144,50 @@ const TermCard = ({ term, onDeleteCourse }: TermCardProps) => {
               }}
               className="cursor-pointer"
             >
-              <div className="flex justify-end gap-2">
+              {/* Display course status badge */}
+              <div className="mt-2 pt-2 border-t border-border/50">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Status:</span>
+                  {getCourseStatusBadge(planCourse.status)}
+                </div>
+              </div>
+
+              {/* Display schedule if available */}
+              {planCourse.courses.schedule && planCourse.courses.schedule.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-border/50">
+                  <div className="flex items-start gap-2">
+                    <Clock className="w-3 h-3 text-muted-foreground mt-0.5" />
+                    <div className="flex-1 space-y-1">
+                      {planCourse.courses.schedule.map((time: any, idx: number) => (
+                        <div key={idx} className="text-xs text-muted-foreground">
+                          <span className="font-medium">{time.day}</span>: {time.startTime} - {time.endTime}
+                          {time.room && <span className="ml-2">({time.room})</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center gap-2 mt-2">
+                {!planCourse.courses.schedule || planCourse.courses.schedule.length === 0 ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs gap-1"
+                    onClick={() => {
+                      toast({
+                        title: 'Add Class Times',
+                        description: 'Feature coming soon! You can add schedule times to detect conflicts.',
+                      });
+                    }}
+                  >
+                    <Clock className="w-3 h-3" />
+                    Add Times
+                  </Button>
+                ) : (
+                  <div />
+                )}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -861,7 +1196,6 @@ const TermCard = ({ term, onDeleteCourse }: TermCardProps) => {
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
-                {/* remove the incorrect Add to Plan button */}
               </div>
             </ColorCodedCourseCard>
           ))}

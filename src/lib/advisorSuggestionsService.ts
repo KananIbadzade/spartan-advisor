@@ -7,6 +7,9 @@ export interface AdvisorSuggestion {
   course_id: string;
   content: string | null;
   status: 'pending' | 'accepted' | 'declined';
+  term: string | null;
+  year: string | null;
+  archived: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -25,6 +28,8 @@ export interface CreateSuggestionData {
   student_id: string;
   course_id: string;
   content?: string;
+  term?: string;
+  year?: string;
 }
 
 export const addAdvisorSuggestion = async (suggestionData: CreateSuggestionData): Promise<AdvisorSuggestion> => {
@@ -51,7 +56,10 @@ export const addAdvisorSuggestion = async (suggestionData: CreateSuggestionData)
       advisor_id: user.id,
       student_id: suggestionData.student_id,
       course_id: suggestionData.course_id,
-      content: suggestionData.content || null
+      content: suggestionData.content || null,
+      term: suggestionData.term || null,
+      year: suggestionData.year || null,
+      archived: false
     })
     .select()
     .single();

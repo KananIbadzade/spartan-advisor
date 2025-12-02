@@ -7,8 +7,6 @@ import { useToast } from '@/hooks/use-toast';
 import {
   GraduationCap,
   Calendar,
-  FileText,
-  MessageSquare,
   LogOut,
   User,
   Shield,
@@ -19,7 +17,8 @@ import {
 } from 'lucide-react';
 import RoleBadge from '@/components/RoleBadge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { DisplayNotes, DisplaySuggestions } from '@/components/AdvisorNotes';
+import { DisplayNotes } from '@/components/AdvisorNotes';
+import { DisplaySuggestions } from '@/components/DisplaySuggestions';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -220,7 +219,7 @@ const Dashboard = () => {
                 <div className="w-12 h-12 bg-blue/10 rounded-lg flex items-center justify-center mb-2 group-hover:bg-blue/20 transition-colors">
                   <NotebookPen className="w-6 h-6 text-blue-600" />
                 </div>
-                <CardTitle className="text-lg">Student Notes</CardTitle>
+                <CardTitle className="text-lg">Advisor Tasks</CardTitle>
                 <CardDescription>Add notes and course suggestions</CardDescription>
               </CardHeader>
               <CardContent>
@@ -262,48 +261,6 @@ const Dashboard = () => {
               <CardContent>
                 <Button onClick={() => navigate('/transcript')} variant="secondary" className="w-full">
                   Upload Transcript
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Messages - All users */}
-          <Card className="hover:shadow-card transition-all cursor-pointer group">
-            <CardHeader>
-              <div className="w-12 h-12 bg-accent/10 rounded-lg flex items-center justify-center mb-2 group-hover:bg-accent/20 transition-colors">
-                <MessageSquare className="w-6 h-6 text-accent" />
-              </div>
-              <CardTitle className="text-lg">Messages</CardTitle>
-              <CardDescription>Chat with others</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button
-                onClick={() => navigate('/messages')}
-                variant="outline"
-                className="w-full"
-              >
-                View Messages
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Pending Plan Approvals - Advisors and Admins */}
-          {(isAdvisor || isAdmin || advisorPending) && (
-            <Card className={`transition-all ${advisorPending ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-card cursor-pointer group'}`}>
-              <CardHeader>
-                <div className={`w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-2 ${!advisorPending && 'group-hover:bg-primary/20'} transition-colors`}>
-                  <FileText className="w-6 h-6 text-primary" />
-                </div>
-                <CardTitle className="text-lg">Pending Plan Approvals</CardTitle>
-                <CardDescription>Review student course plans</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button
-                  onClick={() => !advisorPending && navigate('/pending-approvals')}
-                  className="w-full"
-                  disabled={advisorPending}
-                >
-                  {advisorPending ? 'Approval Required' : 'Review Plans'}
                 </Button>
               </CardContent>
             </Card>

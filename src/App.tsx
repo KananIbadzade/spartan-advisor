@@ -14,7 +14,7 @@ import PendingAdvisors from "./pages/PendingAdvisors";
 import AdvisorTools from "./pages/AdvisorTools";
 import Planner from "./pages/Planner";
 import Transcript from "./pages/Transcript";
-import Messages from "./pages/Messages";
+// import Messages from "./pages/Messages"; // Removed - replaced with embedded PlanDiscussion
 import PendingApprovals from "./pages/PendingApprovals";
 import NotFound from "./pages/NotFound";
 import AdvisorSuggestionsReview from "./pages/AdvisorSuggestionsReview";
@@ -37,7 +37,7 @@ const App = () => (
           <Route path="/pending-advisors" element={<PendingAdvisors />} />
           <Route path="/planner" element={<Planner />} />
           <Route path="/transcript" element={<Transcript />} />
-          <Route path="/messages" element={<Messages />} />
+          {/* <Route path="/messages" element={<Messages />} /> */}
           <Route path="/advisor-tools" element={<AdvisorTools />} />
           <Route path="/pending-approvals" element={<PendingApprovals />} />
           <Route

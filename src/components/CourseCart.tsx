@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import {
   ShoppingCart,
   X,
@@ -15,7 +17,8 @@ import {
   BookOpen,
   AlertTriangle,
   CheckCircle,
-  DollarSign
+  DollarSign,
+  Send
 } from 'lucide-react';
 import { ConflictIndicator, Course, useConflictDetection } from '@/components/ConflictDetector';
 import { Input } from '@/components/ui/input';
@@ -52,7 +55,7 @@ interface CourseCartProps {
   widthPx?: number;                 // NEW (only for split mode)
   isOpen: boolean;
   onToggle: () => void;
-  onFinalizePlan: (courses: CourseCartItem[]) => Promise<void>;
+  onFinalizePlan: (courses: CourseCartItem[], submitToAdvisor?: boolean) => Promise<void>;
   cartItems: CourseCartItem[];
   addCourse: (course: Course, priority?: 'high' | 'medium' | 'low', notes?: string) => void;
   removeCourse: (courseId: string) => void;
@@ -79,6 +82,7 @@ export const CourseCart: React.FC<CourseCartProps> = ({
   hideFab = false
 }) => {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [submitToAdvisor, setSubmitToAdvisor] = useState(false);
 
   // Use conflict detection
   const { conflicts, hasConflicts } = useConflictDetection(cartItems);
@@ -90,8 +94,9 @@ export const CourseCart: React.FC<CourseCartProps> = ({
 
     try {
       setIsProcessing(true);
-      await onFinalizePlan(cartItems);
+      await onFinalizePlan(cartItems, submitToAdvisor);
       // Clear cart after successful finalization
+      setSubmitToAdvisor(false); // Reset toggle after finalization
     } catch (error) {
       console.error('Failed to finalize plan:', error);
     } finally {
@@ -286,21 +291,47 @@ export const CourseCart: React.FC<CourseCartProps> = ({
                 )}
 
                 {/* Actions */}
-                <div className="p-4 border-t space-y-2">
+                <div className="p-4 border-t space-y-3">
+                  {/* Submit to Advisor Toggle */}
+                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
+                    <div className="flex items-center gap-2">
+                      <Send className="w-4 h-4 text-primary" />
+                      <Label htmlFor="submit-toggle" className="cursor-pointer">
+                        <span className="font-medium">Submit for Review</span>
+                        <p className="text-xs text-muted-foreground">
+                          Send plan to advisor for approval
+                        </p>
+                      </Label>
+                    </div>
+                    <Switch
+                      id="submit-toggle"
+                      checked={submitToAdvisor}
+                      onCheckedChange={setSubmitToAdvisor}
+                    />
+                  </div>
+
                   <div className="flex gap-2">
                     <Button
                       onClick={handleFinalizePlan}
                       disabled={hasConflicts || cartItems.length === 0 || isProcessing}
                       className="flex-1"
+                      variant={submitToAdvisor ? "default" : "secondary"}
                     >
                       {isProcessing ? (
                         'Processing...'
                       ) : hasConflicts ? (
                         'Resolve Conflicts First'
+                      ) : submitToAdvisor ? (
+                        <>
+                          Submit to Advisor
+                          <Send className="w-4 h-4 ml-2" />
+                        </>
                       ) : (
-                        'Finalize Plan'
+                        <>
+                          Save as Draft
+                          <CheckCircle className="w-4 h-4 ml-2" />
+                        </>
                       )}
-                      <CheckCircle className="w-4 h-4 ml-2" />
                     </Button>
                   </div>
                   <Button
