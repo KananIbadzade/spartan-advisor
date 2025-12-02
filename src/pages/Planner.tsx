@@ -22,8 +22,8 @@ import { CourseCart, useCourseCart, useCourseCartManager } from '@/components/Co
 import { ConflictIndicator, useConflictDetection } from '@/components/ConflictDetector';
 import { CourseTypeBadge, ColorCodedCourseCard, CourseTypeLegend, courseTypeConfigs, CourseType } from '@/components/CourseColorCoding';
 import { SchedulePDFExporter } from '@/components/SchedulePDFExporter';
-import { DisplayNotes } from '@/components/AdvisorNotes';
 import { DisplaySuggestions } from '@/components/DisplaySuggestions';
+import { PlanDiscussion } from '@/components/PlanDiscussion';
 
 const planCourseSchema = z.object({
   term: z.enum(['Fall', 'Spring', 'Summer', 'Winter'], {
@@ -810,7 +810,7 @@ const Planner = () => {
 
             {role === 'student' && user && (
               <div className="mb-6 space-y-4">
-                <DisplayNotes notes={advisorNotes} emptyMessage="No advisor notes yet." />
+                <PlanDiscussion studentId={user.id} currentUserRole="student" />
                 <DisplaySuggestions studentId={user.id} currentUserRole="student" />
               </div>
             )}

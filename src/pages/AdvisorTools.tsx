@@ -6,11 +6,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, NotebookPen, Users, ClipboardCheck } from 'lucide-react';
-import { AddNoteForm } from '@/components/AddNoteForm';
-import { DisplayNotes } from '@/components/DisplayNotes';
 import { AddSuggestionForm } from '@/components/AddSuggestionForm';
 import { DisplaySuggestions } from '@/components/DisplaySuggestions';
-import { addAdvisorNote } from '@/lib/advisorNotesService';
+import { PlanDiscussion } from '@/components/PlanDiscussion';
 import { addAdvisorSuggestion } from '@/lib/advisorSuggestionsService';
 
 const AdvisorTools = () => {
@@ -135,38 +133,6 @@ const loadAssignedStudents = async (advisorId: string) => {
     });
   }
 };
-
-  const handleAddNote = async (content: string) => {
-    if (!selectedStudent) {
-      toast({
-        title: 'Error',
-        description: 'Please select a student first',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    try {
-      console.log('Adding note for student:', selectedStudent);
-      await addAdvisorNote({
-        student_id: selectedStudent,
-        content
-      });
-
-      toast({
-        title: "Success",
-        description: "Note added successfully!"
-      });
-    } catch (error) {
-      console.error('Error adding note:', error);
-      toast({
-        title: "Error",
-        description: "Failed to add note. " + (error as Error).message,
-        variant: "destructive"
-      });
-      throw error;
-    }
-  };
 
   const handleAddSuggestion = async (courseId: string, content?: string, term?: string, year?: string) => {
     if (!selectedStudent) {
@@ -317,15 +283,12 @@ const loadAssignedStudents = async (advisorId: string) => {
         {/* Notes and Suggestions */}
         {selectedStudent && (
           <div className="grid lg:grid-cols-2 gap-8">
-            {/* Notes Column */}
+            {/* Plan Discussion Column */}
             <div className="space-y-6">
-              <AddNoteForm
+              <PlanDiscussion
                 studentId={selectedStudent}
-                studentName={selectedStudentData ? `${selectedStudentData.first_name} ${selectedStudentData.last_name}` : undefined}
-                onSubmit={handleAddNote}
-              />
-              <DisplayNotes
-                studentId={selectedStudent}
+                advisorId={currentUser?.id}
+                currentUserRole="advisor"
                 studentName={selectedStudentData ? `${selectedStudentData.first_name} ${selectedStudentData.last_name}` : undefined}
               />
             </div>

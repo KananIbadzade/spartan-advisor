@@ -7,7 +7,6 @@ import { useToast } from '@/hooks/use-toast';
 import {
   GraduationCap,
   Calendar,
-  MessageSquare,
   LogOut,
   User,
   Shield,
@@ -266,26 +265,6 @@ const Dashboard = () => {
               </CardContent>
             </Card>
           )}
-
-          {/* Messages - All users */}
-          <Card className="hover:shadow-card transition-all cursor-pointer group">
-            <CardHeader>
-              <div className="w-12 h-12 bg-accent/10 rounded-lg flex items-center justify-center mb-2 group-hover:bg-accent/20 transition-colors">
-                <MessageSquare className="w-6 h-6 text-accent" />
-              </div>
-              <CardTitle className="text-lg">Messages</CardTitle>
-              <CardDescription>Chat with others</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button
-                onClick={() => navigate('/messages')}
-                variant="outline"
-                className="w-full"
-              >
-                View Messages
-              </Button>
-            </CardContent>
-          </Card>
 
           {/* Profile - All users */}
           <Card className="hover:shadow-card transition-all cursor-pointer group">

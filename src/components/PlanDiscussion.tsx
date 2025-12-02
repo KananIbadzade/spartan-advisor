@@ -1,0 +1,313 @@
+import { useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
+import { MessageCircle, Send, User } from 'lucide-react';
+
+interface Message {
+  id: string;
+  student_id: string;
+  advisor_id: string;
+  sender_id: string;
+  message: string;
+  created_at: string;
+}
+
+interface PlanDiscussionProps {
+  studentId: string;
+  advisorId?: string;
+  currentUserRole: 'advisor' | 'student';
+  studentName?: string;
+}
+
+export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentName }: PlanDiscussionProps) => {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [resolvedAdvisorId, setResolvedAdvisorId] = useState<string | null>(advisorId || null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (studentId) {
+      loadAdvisorAssignment();
+    }
+  }, [studentId]);
+
+  useEffect(() => {
+    if (studentId && resolvedAdvisorId) {
+      loadMessages();
+
+      // Subscribe to new messages
+      const channel = supabase
+        .channel('plan_messages')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'plan_messages',
+            filter: `student_id=eq.${studentId}`
+          },
+          (payload) => {
+            console.log('New message received:', payload);
+            setMessages((current) => [...current, payload.new as Message]);
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [studentId, resolvedAdvisorId]);
+
+  const loadAdvisorAssignment = async () => {
+    // If advisorId is already provided, use it
+    if (advisorId) {
+      setResolvedAdvisorId(advisorId);
+      return;
+    }
+
+    // Otherwise, fetch the advisor assignment for this student
+    try {
+      const { data, error } = await supabase
+        .from('advisor_assignments')
+        .select('advisor_id')
+        .eq('student_id', studentId)
+        .limit(1);
+
+      if (error) {
+        console.error('Error loading advisor assignment:', error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        console.log('Resolved advisor ID:', data[0].advisor_id);
+        setResolvedAdvisorId(data[0].advisor_id);
+      } else {
+        console.log('No advisor assignment found for student:', studentId);
+      }
+    } catch (error) {
+      console.error('Error loading advisor assignment:', error);
+    }
+  };
+
+  const loadMessages = async () => {
+    if (!resolvedAdvisorId) {
+      console.log('Cannot load messages - resolvedAdvisorId is null');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Debug: Check current user
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      console.log('Current logged-in user:', currentUser?.id);
+      console.log('Loading messages for student:', studentId, 'advisor:', resolvedAdvisorId);
+      console.log('User match:', currentUser?.id === studentId);
+
+      // Load all messages for this student
+      // RLS policies will ensure advisors can only see messages for their assigned students
+      const { data, error } = await supabase
+        .from('plan_messages')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: true });
+
+      console.log('Messages loaded:', data);
+      console.log('Messages error:', error);
+
+      // Debug: Check if there are ANY messages for this student
+      const { data: allMessages } = await supabase
+        .from('plan_messages')
+        .select('*')
+        .eq('student_id', studentId);
+      console.log('ALL messages for student (unfiltered):', allMessages);
+
+      if (error) {
+        console.error('Error loading messages:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load messages',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      setMessages(data || []);
+    } catch (error) {
+      console.error('Caught error loading messages:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !resolvedAdvisorId) return;
+
+    try {
+      setSending(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast({
+          title: 'Error',
+          description: 'You must be logged in to send messages',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      const messageData = {
+        student_id: studentId,
+        advisor_id: resolvedAdvisorId,
+        sender_id: user.id,
+        message: newMessage.trim()
+      };
+
+      console.log('Attempting to insert message:', messageData);
+
+      const { data: insertedData, error } = await supabase
+        .from('plan_messages')
+        .insert(messageData)
+        .select();
+
+      console.log('Insert result:', insertedData);
+      console.log('Insert error:', error);
+
+      if (error) {
+        console.error('Error sending message:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to send message',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      setNewMessage('');
+      toast({
+        title: 'Message sent',
+        description: 'Your message has been sent successfully'
+      });
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to send message',
+        variant: 'destructive'
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <MessageCircle className="w-5 h-5" />
+          Plan Discussion
+        </CardTitle>
+        <CardDescription>
+          {currentUserRole === 'advisor'
+            ? `Conversation with ${studentName || 'student'} about their plan`
+            : 'Discuss your plan with your advisor'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        ) : (
+          <>
+            {/* Messages Thread */}
+            <div className="space-y-3 mb-4 max-h-[400px] overflow-y-auto">
+              {messages.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p>No messages yet</p>
+                  <p className="text-sm mt-1">Start the conversation about this plan</p>
+                </div>
+              ) : (
+                messages.map((msg) => {
+                  // Check if message is from student (sender_id matches student_id)
+                  // Otherwise it's from an advisor
+                  const isFromStudent = msg.sender_id === studentId;
+                  const isFromAdvisor = !isFromStudent;
+                  const isOwnMessage = currentUserRole === 'advisor' ? isFromAdvisor : isFromStudent;
+
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[80%] rounded-lg p-3 ${
+                          isOwnMessage
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <User className="w-3 h-3" />
+                          <span className="text-xs font-semibold">
+                            {isFromAdvisor ? 'Advisor' : 'Student'}
+                          </span>
+                          <span className="text-xs opacity-70">
+                            {new Date(msg.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap">{msg.message}</p>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Message Input */}
+            <div className="border-t pt-4">
+              <div className="space-y-2">
+                <Textarea
+                  placeholder="Type your message... (Press Enter to send, Shift+Enter for new line)"
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  disabled={sending || !resolvedAdvisorId}
+                  rows={3}
+                  className="resize-none"
+                />
+                <div className="flex justify-between items-center">
+                  <p className="text-xs text-muted-foreground">
+                    {newMessage.length} characters
+                  </p>
+                  <Button
+                    onClick={handleSendMessage}
+                    disabled={sending || !newMessage.trim() || !resolvedAdvisorId}
+                    size="sm"
+                    className="gap-1"
+                  >
+                    <Send className="w-3 h-3" />
+                    Send
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
