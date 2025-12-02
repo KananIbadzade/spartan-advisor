@@ -116,7 +116,26 @@ const loadAssignedStudents = async (advisorId: string) => {
       return;
     }
 
-    const studentsList = profiles || [];
+    let studentsList = profiles || [];
+    // resolve signed urls for avatars
+    studentsList = await Promise.all(studentsList.map(async (p: any) => {
+      if (!p.avatar_url) return p;
+
+      // If stored as full URL, use it directly
+      if (typeof p.avatar_url === 'string' && (p.avatar_url.startsWith('http://') || p.avatar_url.startsWith('https://'))) {
+        return { ...p, avatar_signed_url: p.avatar_url };
+      }
+
+      try {
+        const { data: signed, error: sError } = await supabase.storage.from('avatars').createSignedUrl(p.avatar_url, 60 * 60);
+        if (signed?.signedUrl) {
+          return { ...p, avatar_signed_url: signed.signedUrl };
+        }
+        if (sError) console.warn('Failed to create signed URL for student avatar:', p.avatar_url, sError.message || sError);
+      } catch (e) { console.warn('Error creating signed url for student avatar', e); }
+
+      return p;
+    }));
     console.log('Setting students to:', studentsList);
 
     setStudents(studentsList);
@@ -273,14 +292,38 @@ const loadAssignedStudents = async (advisorId: string) => {
             ) : (
               <Select value={selectedStudent} onValueChange={setSelectedStudent}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select a student to work with..." />
+                  {selectedStudentData ? (
+                    <div className="flex items-center gap-2 w-full">
+                      <div className="w-6 h-6 rounded-full overflow-hidden bg-muted flex items-center justify-center">
+                        {selectedStudentData.avatar_signed_url ? (
+                          <img src={selectedStudentData.avatar_signed_url} alt="avatar" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="text-xs text-muted-foreground">{(selectedStudentData.first_name?.[0] || '') + (selectedStudentData.last_name?.[0] || '')}</div>
+                        )}
+                      </div>
+                      <div className="truncate text-sm">{selectedStudentData.first_name} {selectedStudentData.last_name}</div>
+                    </div>
+                  ) : (
+                    <SelectValue placeholder="Select a student to work with..." />
+                  )}
                 </SelectTrigger>
                 <SelectContent>
                   {students.map(student => (
                     <SelectItem key={student.id} value={student.id}>
-                      {student.first_name} {student.last_name}
-                      {student.student_id && ` (${student.student_id})`}
-                      {student.email && ` - ${student.email}`}
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full overflow-hidden bg-muted flex items-center justify-center">
+                          {student.avatar_signed_url ? (
+                            <img src={student.avatar_signed_url} alt="avatar" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="text-xs text-muted-foreground">{(student.first_name?.[0] || '') + (student.last_name?.[0] || '')}</div>
+                          )}
+                        </div>
+                        <div className="truncate text-sm">
+                          {student.first_name} {student.last_name}
+                          {student.student_id && ` (${student.student_id})`}
+                          {student.email && ` - ${student.email}`}
+                        </div>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>

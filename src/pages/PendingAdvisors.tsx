@@ -82,17 +82,31 @@ const Admin = () => {
       if (error) throw error;
 
       // Fetch profiles separately
-      const advisorData = await Promise.all(
+          const advisorData = await Promise.all(
         (data || []).map(async (role) => {
           const { data: profile } = await supabase
             .from('profiles')
-            .select('first_name, last_name, email')
+            .select('first_name, last_name, email, avatar_url')
             .eq('id', role.user_id)
             .single();
 
+          const profileWithSigned = profile ? { ...profile } : { first_name: '', last_name: '', email: '', avatar_url: null };
+          if (profileWithSigned.avatar_url) {
+            // handle absolute URLs stored directly
+            if (typeof profileWithSigned.avatar_url === 'string' && (profileWithSigned.avatar_url.startsWith('http://') || profileWithSigned.avatar_url.startsWith('https://'))) {
+              profileWithSigned.avatar_signed_url = profileWithSigned.avatar_url;
+            } else {
+              try {
+                const { data: signed, error: sError } = await supabase.storage.from('avatars').createSignedUrl(profileWithSigned.avatar_url, 60 * 60);
+                if (signed?.signedUrl) profileWithSigned.avatar_signed_url = signed.signedUrl;
+                if (sError) console.warn('Failed to create signed URL for pending advisor avatar', profileWithSigned.avatar_url, sError.message || sError);
+              } catch (e) { console.warn('Error creating signed url for pending advisor', e); }
+            }
+          }
+
           return {
             ...role,
-            profiles: profile || { first_name: '', last_name: '', email: '' }
+            profiles: profileWithSigned
           };
         })
       );
@@ -208,9 +222,16 @@ const Admin = () => {
                 <TableBody>
                   {pendingAdvisors.map((advisor) => (
                     <TableRow key={advisor.id}>
-                      <TableCell className="font-medium">
-                        {advisor.profiles.first_name} {advisor.profiles.last_name}
-                      </TableCell>
+                                <TableCell className="font-medium flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex items-center justify-center">
+                                    {advisor.profiles.avatar_signed_url ? (
+                                      <img src={advisor.profiles.avatar_signed_url} alt="avatar" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <div className="text-xs text-muted-foreground">{(advisor.profiles.first_name?.[0] || '') + (advisor.profiles.last_name?.[0] || '')}</div>
+                                    )}
+                                  </div>
+                                  <div>{advisor.profiles.first_name} {advisor.profiles.last_name}</div>
+                                </TableCell>
                       <TableCell>{advisor.profiles.email}</TableCell>
                       <TableCell>
                         {new Date(advisor.created_at).toLocaleDateString()}

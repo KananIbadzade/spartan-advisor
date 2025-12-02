@@ -26,6 +26,7 @@ const Dashboard = () => {
   const { toast } = useToast();
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [roles, setRoles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -52,6 +53,19 @@ const Dashboard = () => {
         .single();
 
       setProfile(profile);
+
+      // if profile has avatar path, create signed url for display (support absolute URLs)
+      if (profile?.avatar_url) {
+        try {
+          if (typeof profile.avatar_url === 'string' && (profile.avatar_url.startsWith('http://') || profile.avatar_url.startsWith('https://'))) {
+            setAvatarUrl(profile.avatar_url);
+          } else {
+            const { data: signed, error: sError } = await supabase.storage.from('avatars').createSignedUrl(profile.avatar_url, 60 * 60);
+            if (!sError && signed?.signedUrl) setAvatarUrl(signed.signedUrl);
+            if (sError) console.warn('Failed to create signed URL for dashboard avatar:', sError.message || sError);
+          }
+        } catch (e) { console.warn('Error creating signed url for dashboard avatar', e); }
+      }
 
       // Fetch user roles
       const { data: userRoles } = await supabase
@@ -115,8 +129,14 @@ const Dashboard = () => {
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="bg-secondary rounded-full p-2">
-                <GraduationCap className="w-6 h-6 text-secondary-foreground" />
+              <div className="w-10 h-10 rounded-full overflow-hidden bg-muted flex items-center justify-center">
+                {avatarUrl ? (
+                  <img src={avatarUrl} className="w-full h-full object-cover" alt="your avatar" />
+                ) : (
+                  <div className="bg-secondary rounded-full p-2">
+                    <GraduationCap className="w-6 h-6 text-secondary-foreground" />
+                  </div>
+                )}
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-primary-foreground">SJSU MyPlanner</h1>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,15 @@ const Auth = () => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  //Automatically redirect confirmed users who arrive via email link
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) navigate('/role-selection'); // same flow as before
+    };
+    checkUser();
+  }, [navigate]);
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,13 +50,19 @@ const Auth = () => {
             first_name: firstName,
             last_name: lastName,
           },
+          //Send user back here after clicking confirm link
+          emailRedirectTo: `${window.location.origin}/auth`,
         },
       });
 
       if (error) throw error;
 
-      // Redirect to role selection after successful signup
-      navigate('/role-selection');
+      //Tell the user to confirm via email
+      toast({
+        title: "Confirm your email",
+        description: "We sent a confirmation link to your SJSU email.",
+      });
+
     } catch (error: any) {
       toast({
         title: "Error",
@@ -69,7 +84,17 @@ const Auth = () => {
         password,
       });
 
-      if (error) throw error;
+      if (error) {
+        if (error.message.toLowerCase().includes("email not confirmed")) {
+          toast({
+            title: "Email not confirmed",
+            description: "Please confirm your email before signing in.",
+            variant: "destructive",
+          });
+          return;
+        }
+        throw error;
+      }
 
       navigate('/dashboard');
     } catch (error: any) {
@@ -207,57 +232,57 @@ const Auth = () => {
                 </form>
               </TabsContent>
 
-            <TabsContent value="signup">
-              <form onSubmit={handleSignUp}>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+              <TabsContent value="signup">
+                <form onSubmit={handleSignUp}>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="firstname">First Name</Label>
+                        <Input
+                          id="firstname"
+                          value={firstName}
+                          onChange={(e) => setFirstName(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="lastname">Last Name</Label>
+                        <Input
+                          id="lastname"
+                          value={lastName}
+                          onChange={(e) => setLastName(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
                     <div className="space-y-2">
-                      <Label htmlFor="firstname">First Name</Label>
+                      <Label htmlFor="signup-email">SJSU Email</Label>
                       <Input
-                        id="firstname"
-                        value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
+                        id="signup-email"
+                        type="email"
+                        placeholder="yourname@sjsu.edu"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                      />
+                      <p className="text-xs text-muted-foreground">Must be an @sjsu.edu email address</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-password">Password</Label>
+                      <Input
+                        id="signup-password"
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
                         required
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="lastname">Last Name</Label>
-                      <Input
-                        id="lastname"
-                        value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-email">SJSU Email</Label>
-                    <Input
-                      id="signup-email"
-                      type="email"
-                      placeholder="yourname@sjsu.edu"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground">Must be an @sjsu.edu email address</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-password">Password</Label>
-                    <Input
-                      id="signup-password"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <Button type="submit" className="w-full" disabled={loading}>
-                    {loading ? 'Creating account...' : 'Create Account'}
-                  </Button>
-                </CardContent>
-              </form>
-            </TabsContent>
+                    <Button type="submit" className="w-full" disabled={loading}>
+                      {loading ? 'Creating account...' : 'Create Account'}
+                    </Button>
+                  </CardContent>
+                </form>
+              </TabsContent>
             </Tabs>
           )}
         </Card>
