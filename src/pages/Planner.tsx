@@ -323,15 +323,28 @@ const Planner = () => {
           .order('term_order')
           .order('position');
 
-        // Add course types and sample schedule data for demo
-        const enhancedCourses = (courses || []).map(course => ({
-          ...course,
-          courses: {
-            ...course.courses,
-            type: determineCourseType(course.courses),
-            schedule: generateSampleSchedule(course.courses)
-          }
-        }));
+        // Add course types for color coding
+        const enhancedCourses = (courses || []).map(course => {
+          // Recalculate term_order to ensure correct sorting
+          const termOrderMap: { [key: string]: number } = {
+            'Spring': 1,
+            'Summer': 2,
+            'Fall': 3,
+            'Winter': 4
+          };
+          const baseOrder = parseInt(course.year) * 10;
+          const calculatedTermOrder = baseOrder + (termOrderMap[course.term] || 0);
+
+          return {
+            ...course,
+            term_order: calculatedTermOrder, // Use recalculated value
+            courses: {
+              ...course.courses,
+              type: determineCourseType(course.courses),
+              schedule: course.courses.schedule || [] // Use real schedule from database if available
+            }
+          };
+        });
 
         setPlanCourses(enhancedCourses);
       }
@@ -354,21 +367,12 @@ const Planner = () => {
     return 'free-elective';
   };
 
-  // Generate sample schedule for conflict detection demo
-  const generateSampleSchedule = (course: any) => {
-    const schedules = [
-      [{ day: 'Monday', startTime: '10:00 AM', endTime: '11:15 AM', room: 'ENG 101' }],
-      [{ day: 'Tuesday', startTime: '2:00 PM', endTime: '3:15 PM', room: 'SCI 201' }],
-      [{ day: 'Wednesday', startTime: '10:00 AM', endTime: '11:15 AM', room: 'ENG 102' }]
-    ];
-    return schedules[Math.floor(Math.random() * schedules.length)];
-  };
-
   const loadAllCourses = async () => {
     const { data } = await supabase
       .from('courses')
       .select('*')
-      .order('course_code');
+      .order('course_code')
+      .order('course_number'); // Added sort by number
 
     setAllCourses(data || []);
   };
@@ -399,7 +403,7 @@ const Planner = () => {
       termMap.get(key)!.courses.push(pc);
     });
 
-    const sortedTerms = Array.from(termMap.values()).sort((a, b) => a.term_order - b.term_order);
+    const sortedTerms = Array.from(termMap.values()).sort((a, b) => b.term_order - a.term_order);
     setTerms(sortedTerms);
   };
 
@@ -530,6 +534,9 @@ const Planner = () => {
         .eq('id', courseId);
 
       if (error) throw error;
+
+      // Update local state immediately for instant feedback
+      setPlanCourses(prev => prev.filter(c => c.id !== courseId));
 
       toast({
         title: 'Success',
@@ -704,7 +711,7 @@ const Planner = () => {
                             .filter(course => course.department_id === selectedDepartmentId)
                             .map(course => (
                               <SelectItem key={course.id} value={course.id}>
-                                {course.course_code} - {course.title} ({course.units} units)
+                                {course.course_code} {course.course_number} - {course.title} ({course.units} units)
                               </SelectItem>
                             ))}
                         </SelectContent>
@@ -752,52 +759,27 @@ const Planner = () => {
         <div className={isCartOpen ? 'flex-1 overflow-hidden' : 'flex-1'}>
           {/* Main planner content */}
           <main className="container mx-auto px-4 py-8">
-            {/* Course Type Legend and Filters */}
+            {/* Course Type Legend */}
             {planCourses.length > 0 && (
-              <div className="mb-6">
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle>Course Types</CardTitle>
-                        <CardDescription>Click to filter your courses by type</CardDescription>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={clearFilters}
+              <div className="mb-4">
+                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <span className="font-medium">Course Types:</span>
+                  {(Object.keys(courseTypeConfigs) as CourseType[]).map(type => {
+                    const config = courseTypeConfigs[type];
+                    return (
+                      <div
+                        key={type}
+                        className="flex items-center gap-1.5"
                       >
-                        Show All
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-wrap gap-3">
-                      {(Object.keys(courseTypeConfigs) as CourseType[]).map(type => {
-                        const config = courseTypeConfigs[type];
-                        const isSelected = selectedTypes.includes(type);
-                        return (
-                          <button
-                            key={type}
-                            onClick={() => toggleType(type)}
-                            className={cn(
-                              "flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all",
-                              isSelected
-                                ? `${config.bgColor} ${config.borderColor} ${config.textColor} font-medium`
-                                : "bg-gray-50 border-gray-200 text-gray-400 opacity-50 hover:opacity-75"
-                            )}
-                          >
-                            <div
-                              className="w-3 h-3 rounded"
-                              style={{ backgroundColor: config.hex }}
-                            />
-                            <span className="text-sm">{config.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
+                        <div
+                          className="w-2 h-2 rounded"
+                          style={{ backgroundColor: config.hex }}
+                        />
+                        <span>{config.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
@@ -809,7 +791,7 @@ const Planner = () => {
             )}
 
             {role === 'student' && user && (
-              <div className="mb-6 space-y-4">
+              <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <PlanDiscussion studentId={user.id} currentUserRole="student" />
                 <DisplaySuggestions studentId={user.id} currentUserRole="student" />
               </div>

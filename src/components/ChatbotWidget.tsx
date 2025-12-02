@@ -138,7 +138,7 @@ export const ChatbotWidget = () => {
           className={cn(
             'fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-[9999]',
             'w-[360px] max-w-[calc(100vw-2rem)] sm:max-w-[360px]',
-            isMinimized ? 'h-auto' : 'h-[70vh] max-h-[600px] min-h-[400px]',
+            isMinimized ? 'h-auto' : 'h-[500px] max-h-[80vh]',
             'bg-background border border-border rounded-lg',
             'shadow-2xl',
             'flex flex-col',

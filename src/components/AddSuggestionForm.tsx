@@ -13,6 +13,13 @@ interface Course {
   course_number: string;
   title: string;
   units: number;
+  department_id: string | null;
+}
+
+interface Department {
+  id: string;
+  code: string;
+  name: string;
 }
 
 interface AddSuggestionFormProps {
@@ -28,44 +35,54 @@ export const AddSuggestionForm: React.FC<AddSuggestionFormProps> = ({
   onSubmit,
   onCancel
 }) => {
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState('');
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [content, setContent] = useState('');
   const [term, setTerm] = useState('');
   const [year, setYear] = useState('');
   const [courses, setCourses] = useState<Course[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isLoadingCourses, setIsLoadingCourses] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadCourses();
+    loadData();
   }, []);
 
-  const loadCourses = async () => {
+  const loadData = async () => {
     try {
-      setIsLoadingCourses(true);
+      setIsLoading(true);
+      
+      // Load departments
+      const { data: deptsData, error: deptsError } = await supabase
+        .from('departments')
+        .select('id, code, name')
+        .order('code');
+      
+      if (deptsError) throw deptsError;
+      setDepartments(deptsData || []);
+
+      // Load courses
       const { data: coursesData, error: coursesError } = await supabase
         .from('courses')
-        .select('id, course_code, course_number, title, units')
+        .select('id, course_code, course_number, title, units, department_id')
         .order('course_code', { ascending: true })
         .order('course_number', { ascending: true });
 
-      if (coursesError) {
-        throw new Error('Failed to load courses');
-      }
-
+      if (coursesError) throw coursesError;
       setCourses(coursesData || []);
+
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load courses');
+      setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
-      setIsLoadingCourses(false);
+      setIsLoading(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Enhanced Validation
     if (!selectedCourseId) {
       setError('Please select a course');
       return;
@@ -78,7 +95,6 @@ export const AddSuggestionForm: React.FC<AddSuggestionFormProps> = ({
 
     const trimmedContent = content.trim();
 
-    // Optional content validation (if provided)
     if (trimmedContent && trimmedContent.length > 1000) {
       setError('Reason/notes cannot exceed 1000 characters');
       return;
@@ -101,13 +117,12 @@ export const AddSuggestionForm: React.FC<AddSuggestionFormProps> = ({
 
       // Clear form on success
       setSelectedCourseId('');
+      // Don't clear department so they can add another course from same dept easily
       setContent('');
       setTerm('');
       setYear('');
     } catch (err) {
       console.error('AddSuggestionForm error:', err);
-
-      // Enhanced error handling
       if (err instanceof Error) {
         if (err.message.includes('not assigned')) {
           setError('You are not authorized to suggest courses for this student');
@@ -128,6 +143,7 @@ export const AddSuggestionForm: React.FC<AddSuggestionFormProps> = ({
 
   const handleCancel = () => {
     setSelectedCourseId('');
+    setSelectedDepartmentId('');
     setContent('');
     setTerm('');
     setYear('');
@@ -136,6 +152,11 @@ export const AddSuggestionForm: React.FC<AddSuggestionFormProps> = ({
   };
 
   const selectedCourse = courses.find(course => course.id === selectedCourseId);
+  
+  // Filter courses by selected department
+  const filteredCourses = selectedDepartmentId 
+    ? courses.filter(c => c.department_id === selectedDepartmentId)
+    : [];
 
   return (
     <Card>
@@ -149,20 +170,48 @@ export const AddSuggestionForm: React.FC<AddSuggestionFormProps> = ({
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
+          
           <div className="space-y-2">
-            <Label htmlFor="course-select">
-              Course *
-            </Label>
+            <Label htmlFor="dept-select">Subject *</Label>
+            <Select
+              value={selectedDepartmentId}
+              onValueChange={(val) => {
+                setSelectedDepartmentId(val);
+                setSelectedCourseId(''); // Reset course when dept changes
+              }}
+              disabled={isSubmitting || isLoading}
+            >
+              <SelectTrigger id="dept-select">
+                <SelectValue placeholder={isLoading ? "Loading..." : "Select a subject"} />
+              </SelectTrigger>
+              <SelectContent>
+                {departments.map((dept) => (
+                  <SelectItem key={dept.id} value={dept.id}>
+                    {dept.code} - {dept.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="course-select">Course *</Label>
             <Select
               value={selectedCourseId}
               onValueChange={setSelectedCourseId}
-              disabled={isSubmitting || isLoadingCourses}
+              disabled={isSubmitting || isLoading || !selectedDepartmentId}
             >
               <SelectTrigger id="course-select">
-                <SelectValue placeholder={isLoadingCourses ? "Loading courses..." : "Select a course"} />
+                <SelectValue placeholder={
+                  !selectedDepartmentId 
+                    ? "Select a subject first" 
+                    : filteredCourses.length === 0 
+                      ? "No courses found" 
+                      : "Select a course"
+                } />
               </SelectTrigger>
               <SelectContent>
-                {courses.map((course) => (
+                {filteredCourses.map((course) => (
                   <SelectItem key={course.id} value={course.id}>
                     {course.course_code} {course.course_number} - {course.title} ({course.units} units)
                   </SelectItem>
@@ -257,7 +306,7 @@ export const AddSuggestionForm: React.FC<AddSuggestionFormProps> = ({
             )}
             <Button
               type="submit"
-              disabled={isSubmitting || !selectedCourseId || isLoadingCourses}
+              disabled={isSubmitting || !selectedCourseId || isLoading}
             >
               {isSubmitting ? 'Saving...' : 'Add Suggestion'}
             </Button>

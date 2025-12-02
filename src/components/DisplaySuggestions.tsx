@@ -38,6 +38,31 @@ export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: 
   useEffect(() => {
     if (studentId) {
       loadSuggestions();
+
+      // Subscribe to real-time changes for suggestions
+      const channel = supabase
+        .channel(`advisor_suggestions_${studentId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'advisor_suggestions',
+            filter: `student_id=eq.${studentId}`
+          },
+          (payload) => {
+            console.log('Suggestion changed, reloading...', payload);
+            loadSuggestions();
+          }
+        )
+        .subscribe((status) => {
+          console.log('Subscription status:', status);
+        });
+
+      return () => {
+        console.log('Removing channel subscription');
+        supabase.removeChannel(channel);
+      };
     }
   }, [studentId]);
 
@@ -89,9 +114,9 @@ export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: 
       let filteredData = data as any || [];
 
       if (currentUserRole === 'student') {
-        // Students don't see declined or archived suggestions
+        // Students only see pending suggestions (accepted/declined ones are removed from view)
         filteredData = filteredData.filter((s: Suggestion) =>
-          s.status !== 'declined' && !s.archived
+          s.status === 'pending' && !s.archived
         );
       } else {
         // Advisors see all non-archived suggestions
@@ -130,8 +155,8 @@ export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: 
       }
 
       // Determine term and year - use suggestion's term/year if available
-      let targetTerm = suggestion.term || 'Fall';
-      let targetYear = suggestion.year || new Date().getFullYear().toString();
+      const targetTerm = suggestion.term || 'Fall';
+      const targetYear = suggestion.year || new Date().getFullYear().toString();
 
       // Calculate term_order
       const termOrders: Record<string, number> = {
@@ -227,7 +252,31 @@ export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: 
 
       toast({
         title: 'Suggestion Archived',
-        description: 'The suggestion has been archived.'
+        description: 'The suggestion has been archived and hidden from view.'
+      });
+
+      loadSuggestions();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleDeleteSuggestion = async (suggestionId: string) => {
+    try {
+      const { error } = await supabase
+        .from('advisor_suggestions')
+        .delete()
+        .eq('id', suggestionId);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Suggestion Deleted',
+        description: 'The suggestion has been permanently deleted.'
       });
 
       loadSuggestions();
@@ -264,7 +313,7 @@ export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: 
             <p>No course suggestions yet</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 max-h-[300px] overflow-y-auto">
             {suggestions.map((suggestion) => (
               <div key={suggestion.id} className="border rounded-lg p-4 space-y-3">
                 {suggestion.courses && (
@@ -339,8 +388,21 @@ export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: 
                   </div>
                 )}
 
-                {/* Advisor actions - can archive resolved suggestions */}
-                {currentUserRole === 'advisor' && suggestion.status !== 'pending' && (
+                {/* Advisor actions */}
+                {currentUserRole === 'advisor' && suggestion.status === 'pending' && (
+                  <div className="flex gap-2 pt-2 border-t">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleDeleteSuggestion(suggestion.id)}
+                      className="gap-1 text-destructive hover:text-destructive"
+                    >
+                      <XCircle className="w-3 h-3" />
+                      Delete
+                    </Button>
+                  </div>
+                )}
+                {currentUserRole === 'advisor' && suggestion.status === 'accepted' && (
                   <div className="flex gap-2 pt-2 border-t">
                     <Button
                       size="sm"
@@ -350,6 +412,19 @@ export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: 
                     >
                       <Archive className="w-3 h-3" />
                       Archive
+                    </Button>
+                  </div>
+                )}
+                {currentUserRole === 'advisor' && suggestion.status === 'declined' && (
+                  <div className="flex gap-2 pt-2 border-t">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleDeleteSuggestion(suggestion.id)}
+                      className="gap-1 text-destructive hover:text-destructive"
+                    >
+                      <XCircle className="w-3 h-3" />
+                      Delete
                     </Button>
                   </div>
                 )}
@@ -363,7 +438,7 @@ export const DisplaySuggestions = ({ studentId, studentName, currentUserRole }: 
             <p className="text-xs text-muted-foreground">
               {currentUserRole === 'student'
                 ? 'Accepting a suggestion will add the course to your plan with approved status.'
-                : `Showing ${suggestions.length} suggestion${suggestions.length !== 1 ? 's' : ''}. Archive resolved suggestions to clean up this view.`}
+                : `Showing ${suggestions.length} suggestion${suggestions.length !== 1 ? 's' : ''}. Delete pending/declined suggestions or archive accepted ones to clean up this view.`}
             </p>
           </div>
         )}

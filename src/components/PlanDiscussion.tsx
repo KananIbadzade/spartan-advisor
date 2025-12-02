@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,12 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
   const [sending, setSending] = useState(false);
   const [resolvedAdvisorId, setResolvedAdvisorId] = useState<string | null>(advisorId || null);
   const { toast } = useToast();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   useEffect(() => {
     if (studentId) {
@@ -188,11 +194,12 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
         return;
       }
 
+      // Immediately add the message to local state for instant feedback
+      if (insertedData && insertedData.length > 0) {
+        setMessages((current) => [...current, insertedData[0] as Message]);
+      }
+
       setNewMessage('');
-      toast({
-        title: 'Message sent',
-        description: 'Your message has been sent successfully'
-      });
     } catch (error) {
       console.error('Error sending message:', error);
       toast({
@@ -233,7 +240,7 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
         ) : (
           <>
             {/* Messages Thread */}
-            <div className="space-y-3 mb-4 max-h-[400px] overflow-y-auto">
+            <div className="space-y-3 mb-4 max-h-[300px] overflow-y-auto">
               {messages.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-30" />
@@ -275,6 +282,8 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
                   );
                 })
               )}
+              {/* Invisible div for auto-scrolling to bottom */}
+              <div ref={messagesEndRef} />
             </div>
 
             {/* Message Input */}
