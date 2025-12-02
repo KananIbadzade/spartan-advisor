@@ -6,7 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, ChevronDown, ChevronRight, Shield } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, Shield, HelpCircle } from 'lucide-react';
+import AdminOnboarding from '@/components/AdminOnboarding';
 import RoleBadge from '@/components/RoleBadge';
 
 interface UserProfile {
@@ -34,6 +35,7 @@ const Admin = () => {
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     checkAdminAccess();
@@ -67,6 +69,14 @@ const Admin = () => {
 
       setIsAdmin(true);
       fetchAllUsers();
+
+      // Show onboarding for first-time admins only (persist opt-out in localStorage)
+      try {
+        const hidden = window.localStorage.getItem('admin_onboarding_shown');
+        if (!hidden) setShowOnboarding(true);
+      } catch (e) {
+        // ignore localStorage errors in restrictive environments
+      }
     } catch (error) {
       console.error('Error checking admin access:', error);
       navigate('/dashboard');
@@ -152,6 +162,12 @@ const Admin = () => {
           </Button>
           <div className="flex items-center gap-3">
             <Shield className="w-8 h-8 text-primary-foreground" />
+            <div className="ml-auto flex items-center gap-2">
+              <Button variant="ghost" onClick={() => setShowOnboarding(true)} className="gap-2 text-primary-foreground hover:bg-primary-foreground/10">
+                <HelpCircle className="w-4 h-4" />
+                Help
+              </Button>
+            </div>
             <div>
               <h1 className="text-3xl font-bold text-primary-foreground">Admin Dashboard</h1>
               <p className="text-primary-foreground/80">Manage all users and their profiles</p>
@@ -162,6 +178,12 @@ const Admin = () => {
 
       <main className="container mx-auto px-4 py-8">
         <Card className="shadow-card">
+          <AdminOnboarding open={showOnboarding} onClose={(dontShowAgain?: boolean) => {
+            setShowOnboarding(false);
+            if (dontShowAgain) {
+              try { window.localStorage.setItem('admin_onboarding_shown', '1'); } catch (e) {}
+            }
+          }} />
           <CardHeader>
             <CardTitle>All Users</CardTitle>
             <CardDescription>

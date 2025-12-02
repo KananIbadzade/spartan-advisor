@@ -50,6 +50,10 @@ npm run dev
 - Transcript management
 - Admin dashboard for system management
 
+### Admin onboarding / walkthrough
+
+New admin users will now see a short step-by-step walkthrough when they visit the Admin Dashboard for the first time. The walkthrough can be dismissed, and there is a "Don't show this again" option which persists in localStorage. Admins can re-open the walkthrough using the Help button in the Admin header.
+
 ## Development
 
 ```sh
