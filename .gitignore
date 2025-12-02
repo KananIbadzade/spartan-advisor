@@ -103,4 +103,7 @@ Thumbs.db
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Desktop.ini
+Desktop.inisupabase/.temp/
+supabase/.temp/
+
+.github
