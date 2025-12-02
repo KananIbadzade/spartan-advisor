@@ -7,14 +7,18 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import OpenAI from 'openai';
 
-// Set worker path for PDF.js
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// FIX: Use local worker via Vite import to prevent CORS errors with CDNs
+// This serves the worker from the same origin as the app
+// @ts-ignore
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 export interface ParsedCourse {
   code: string;           // e.g., "CS 46A"
   title?: string;         // e.g., "Introduction to Programming"
   units?: number;         // e.g., 4
-  grade?: string;         // e.g., "A", "B+", "P"
+  grade?: string;         // e.g., "A", "B+", "P", "IP"
   semester?: string;      // e.g., "Fall 2023"
   year?: string;          // e.g., "2023"
 }
@@ -24,8 +28,10 @@ export interface ParsedCourse {
  */
 export async function extractTextFromPDF(file: File): Promise<string> {
   try {
+    console.log("DEBUG: Starting text extraction...");
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    console.log(`DEBUG: PDF loaded for text extraction. Pages: ${pdf.numPages}`);
 
     let fullText = '';
 
@@ -39,6 +45,7 @@ export async function extractTextFromPDF(file: File): Promise<string> {
       fullText += pageText + '\n';
     }
 
+    console.log(`DEBUG: Extracted ${fullText.length} characters of text.`);
     return fullText;
   } catch (error) {
     console.error('Error extracting text from PDF:', error);
@@ -51,14 +58,15 @@ export async function extractTextFromPDF(file: File): Promise<string> {
  * Looks for patterns like "CS 46A" followed by grades
  */
 export function parseCoursesFromText(text: string): ParsedCourse[] {
+  console.log("DEBUG: Parsing courses from text...");
   const courses: ParsedCourse[] = [];
 
   // Common course code pattern: 2-4 uppercase letters + space + number + optional letter
   // Examples: "CS 46A", "CMPE 133", "MATH 30", "ENGR 10"
   const coursePattern = /([A-Z]{2,4})\s+(\d{1,3}[A-Z]?)/g;
 
-  // Grade patterns: A, A-, B+, B, C, etc. Also P (Pass), F (Fail), W (Withdrawn)
-  const gradePattern = /\b([ABCDF][+-]?|P|NP|W|WU|I|IC|RD|RP)\b/;
+  // Grade patterns: A, A-, B+, B, C, etc. Also P (Pass), F (Fail), W (Withdrawn), IP (In Progress)
+  const gradePattern = /\b([ABCDF][+-]?|P|NP|W|WU|I|IC|RD|RP|IP)\b/;
 
   // Units pattern: typically "3.0" or "4" or "3 Units"
   const unitsPattern = /(\d+(?:\.\d+)?)\s*(?:units?)?/i;
@@ -101,8 +109,8 @@ export function parseCoursesFromText(text: string): ParsedCourse[] {
         year: currentYear || undefined
       };
 
-      // Only add if we found a grade (indicates it's actually a completed course)
-      if (course.grade && course.grade !== 'W' && course.grade !== 'WU') {
+      // Add if we found a grade OR if it looks like a valid course entry
+      if (course.grade) {
         courses.push(course);
       }
     }
@@ -113,6 +121,7 @@ export function parseCoursesFromText(text: string): ParsedCourse[] {
     index === self.findIndex((c) => c.code === course.code)
   );
 
+  console.log(`DEBUG: Found ${uniqueCourses.length} unique courses from text.`);
   return uniqueCourses;
 }
 
@@ -150,46 +159,63 @@ async function parseTranscriptWithVision(file: File): Promise<ParsedCourse[]> {
     });
 
     // Load PDF
+    console.log("DEBUG: Loading PDF for Vision...");
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
-    console.log(`PDF has ${pdf.numPages} pages`);
+    console.log(`DEBUG: PDF has ${pdf.numPages} pages`);
 
-    // Convert first page to image (most transcripts have courses on first page)
-    // TODO: Handle multi-page transcripts if needed
-    const page = await pdf.getPage(1);
-    const base64Image = await pdfPageToBase64Image(page);
+    // Prepare content array for GPT-4o (text prompt + multiple images)
+    const contentParts: any[] = [
+      {
+        type: 'text',
+        text: `You are a transcript parser. Extract ALL courses from these SJSU transcript images.
+        
+        For each course, extract:
+        - Course code (e.g., "CS 46A", "CMPE 133", "MATH 30")
+        - Grade (e.g., "A", "B+", "C", "CR"). 
+          IMPORTANT: If a course is currently "In Progress" or has no grade yet, set grade to "IP".
+        - Units/Credits (e.g., 3.0, 4.0)
+        - Semester (e.g., "Fall 2023", "Spring 2024")
+        - Year (e.g., "2023", "2024")
 
-    console.log('Sending transcript to GPT-4 Vision...');
+        Return ONLY a JSON array. Format:
+        [{"code": "CS 46A", "grade": "A", "units": 4, "semester": "Fall 2023", "year": "2023"}, ...]
 
-    // Send to GPT-4 Vision
+        Rules:
+        1. Scan ALL pages provided.
+        2. Include ALL completed courses.
+        3. Include ALL "In Progress" courses (mark grade as "IP").
+        4. Include transfer credits if visible.
+        5. Do NOT include withdrawn courses (W, WU) unless they are the most recent attempt.
+        6. Be precise with course codes.`
+      }
+    ];
+
+    // Convert ALL pages to images
+    for (let i = 1; i <= pdf.numPages; i++) {
+      console.log(`DEBUG: Processing page ${i}/${pdf.numPages} for Vision...`);
+      const page = await pdf.getPage(i);
+      const base64Image = await pdfPageToBase64Image(page);
+      
+      contentParts.push({
+        type: 'image_url',
+        image_url: {
+          url: `data:image/png;base64,${base64Image}`
+        }
+      });
+    }
+
+    console.log(`DEBUG: Sending ${contentParts.length - 1} pages to GPT-4o...`);
+
+    // Send to GPT-4o
     const response = await openai.chat.completions.create({
-      model: 'gpt-4-vision-preview',
-      max_tokens: 2000,
+      model: 'gpt-4o',
+      max_tokens: 4000, // Increased token limit for full transcript
       messages: [
         {
           role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: `Extract ALL courses from this SJSU transcript image. For each course, extract:
-              - Course code (e.g., "CS 46A", "CMPE 133")
-              - Grade (A, A-, B+, B, etc.)
-              - Units/Credits (e.g., 3, 4)
-              - Semester if visible (e.g., "Fall 2023")
-
-              Return ONLY a JSON array with no other text. Format:
-              [{"code": "CS 46A", "grade": "A", "units": 4, "semester": "Fall 2023"}, ...]
-
-              Important: Only include courses with grades (skip withdrawn courses).`
-            },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:image/png;base64,${base64Image}`
-              }
-            }
-          ]
+          content: contentParts
         }
       ]
     });
@@ -199,7 +225,7 @@ async function parseTranscriptWithVision(file: File): Promise<ParsedCourse[]> {
       throw new Error('No response from GPT-4 Vision');
     }
 
-    console.log('GPT-4 Vision response:', content);
+    console.log('DEBUG: GPT-4 response received. Length:', content.length);
 
     // Parse JSON response
     const jsonMatch = content.match(/\[[\s\S]*\]/);
@@ -208,11 +234,11 @@ async function parseTranscriptWithVision(file: File): Promise<ParsedCourse[]> {
     }
 
     const courses = JSON.parse(jsonMatch[0]) as ParsedCourse[];
-    console.log(`Extracted ${courses.length} courses using Vision API`);
+    console.log(`DEBUG: Extracted ${courses.length} courses using Vision API`);
 
     return courses;
   } catch (error) {
-    console.error('Error parsing with GPT-4 Vision:', error);
+    console.error('DEBUG: Error parsing with GPT-4 Vision:', error);
     throw error;
   }
 }
@@ -223,26 +249,25 @@ async function parseTranscriptWithVision(file: File): Promise<ParsedCourse[]> {
  */
 export async function parseTranscript(file: File): Promise<ParsedCourse[]> {
   try {
-    console.log('Starting transcript parsing...');
+    console.log('DEBUG: Starting transcript parsing...');
 
     // Try GPT-4 Vision first (works for both scanned and text PDFs)
     try {
       const courses = await parseTranscriptWithVision(file);
       return courses;
     } catch (visionError) {
-      console.error('Vision API failed, trying text extraction:', visionError);
+      console.error('DEBUG: Vision API failed, trying text extraction fallback:', visionError);
 
       // Fallback: Try text extraction (for text-based PDFs)
       const text = await extractTextFromPDF(file);
-      console.log(`Extracted ${text.length} characters from PDF`);
-
+      
       const courses = parseCoursesFromText(text);
-      console.log(`Found ${courses.length} courses using text extraction`);
+      console.log(`DEBUG: Found ${courses.length} courses using text extraction`);
 
       return courses;
     }
   } catch (error) {
-    console.error('Error parsing transcript:', error);
+    console.error('DEBUG: Fatal error parsing transcript:', error);
     throw error;
   }
 }

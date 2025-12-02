@@ -87,7 +87,7 @@ export const ChatbotWidget = () => {
     setIsLoading(true);
 
     try {
-      let contextParts: string[] = [];
+      const contextParts: string[] = [];
 
       // Get user's major from profile (for personalized responses)
       const userMajor = await getCurrentUserMajor();
