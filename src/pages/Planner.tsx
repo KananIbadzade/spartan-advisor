@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Plus, Trash2, GripVertical, ShoppingCart, Download } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, GripVertical, ShoppingCart, Download, XCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -102,6 +102,19 @@ const Planner = () => {
   // Transcript integration state
   const [completedCourseCodes, setCompletedCourseCodes] = useState<string[]>([]);
   const [isAutoPopulating, setIsAutoPopulating] = useState(false);
+
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: () => {},
+  });
 
   // New feature integrations
   const { isOpen: isCartOpen, toggleCart } = useCourseCart();
@@ -468,27 +481,36 @@ const Planner = () => {
   };
 
   const handleDeleteCourse = async (courseId: string) => {
-    if (!confirm('Delete this course from your plan?')) return;
+    setConfirmDialog({
+      open: true,
+      title: 'Delete Course',
+      description: 'Are you sure you want to remove this course from your plan? This action cannot be undone.',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('plan_courses')
+            .delete()
+            .eq('id', courseId);
 
-    try {
-      const { error } = await supabase
-        .from('plan_courses')
-        .delete()
-        .eq('id', courseId);
+          if (error) throw error;
 
-      if (error) throw error;
+          toast({
+            title: 'Success',
+            description: 'Course removed from plan',
+          });
 
-      toast({
-        title: 'Success',
-        description: 'Course removed from plan',
-      });
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
-    }
+          // Reload plan to refresh the view immediately
+          await loadPlan();
+        } catch (error: any) {
+          toast({
+            title: 'Error',
+            description: error.message,
+            variant: 'destructive',
+          });
+        }
+        setConfirmDialog({ ...confirmDialog, open: false });
+      },
+    });
   };
 
   // Auto-populate planner from transcript
@@ -538,6 +560,51 @@ const Planner = () => {
     } finally {
       setIsAutoPopulating(false);
     }
+  };
+
+  // Clear all courses from a specific semester
+  const handleClearSemester = async (term: string, year: string) => {
+    if (!planId) {
+      toast({
+        title: 'Error',
+        description: 'No active plan found',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setConfirmDialog({
+      open: true,
+      title: 'Clear Semester',
+      description: `Are you sure you want to remove all courses from ${term} ${year}? This action cannot be undone.`,
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('plan_courses')
+            .delete()
+            .eq('plan_id', planId)
+            .eq('term', term)
+            .eq('year', year);
+
+          if (error) throw error;
+
+          toast({
+            title: 'Success',
+            description: `All courses removed from ${term} ${year}`,
+          });
+
+          // Reload plan to refresh the view
+          await loadPlan();
+        } catch (error: any) {
+          toast({
+            title: 'Error',
+            description: error.message || 'Failed to clear semester courses',
+            variant: 'destructive',
+          });
+        }
+        setConfirmDialog({ ...confirmDialog, open: false });
+      },
+    });
   };
 
   // Convert plan data for PDF export
@@ -795,7 +862,7 @@ const Planner = () => {
             ) : (
               <div className="space-y-6">
                 {terms.map((term) => (
-                  <TermCard key={`${term.year}-${term.term}`} term={term} onDeleteCourse={handleDeleteCourse} completedCourseCodes={completedCourseCodes} />
+                  <TermCard key={`${term.year}-${term.term}`} term={term} onDeleteCourse={handleDeleteCourse} onClearSemester={handleClearSemester} completedCourseCodes={completedCourseCodes} />
                 ))}
               </div>
             )}
@@ -898,6 +965,30 @@ const Planner = () => {
         </Dialog>
       )}
 
+      {/* Confirmation Dialog */}
+      <Dialog open={confirmDialog.open} onOpenChange={(open) => setConfirmDialog({ ...confirmDialog, open })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{confirmDialog.title}</DialogTitle>
+            <DialogDescription>{confirmDialog.description}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDialog({ ...confirmDialog, open: false })}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDialog.onConfirm}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ChatbotWidget />
     </div>
   );
@@ -906,17 +997,31 @@ const Planner = () => {
 interface TermCardProps {
   term: TermGroup;
   onDeleteCourse: (courseId: string) => void;
+  onClearSemester: (term: string, year: string) => void;
   completedCourseCodes: string[];
 }
 
-const TermCard = ({ term, onDeleteCourse, completedCourseCodes }: TermCardProps) => {
+const TermCard = ({ term, onDeleteCourse, onClearSemester, completedCourseCodes }: TermCardProps) => {
   return (
     <Card className="transition-colors hover:border-primary/30">
       <CardHeader>
-        <CardTitle>{term.term} {term.year}</CardTitle>
-        <CardDescription>
-          {term.courses.reduce((sum, c) => sum + c.courses.units, 0)} total units
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>{term.term} {term.year}</CardTitle>
+            <CardDescription>
+              {term.courses.reduce((sum, c) => sum + c.courses.units, 0)} total units
+            </CardDescription>
+          </div>
+          <Button
+            variant="destructive"
+            size="sm"
+            className="gap-2"
+            onClick={() => onClearSemester(term.term, term.year)}
+          >
+            <XCircle className="w-4 h-4" />
+            Clear Semester Classes
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-2 min-h-[60px]">
