@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, NotebookPen, Users } from 'lucide-react';
+import { ArrowLeft, NotebookPen, Users, ClipboardCheck } from 'lucide-react';
 import { AddNoteForm } from '@/components/AddNoteForm';
 import { DisplayNotes } from '@/components/DisplayNotes';
 import { AddSuggestionForm } from '@/components/AddSuggestionForm';
@@ -252,6 +252,29 @@ const loadAssignedStudents = async (advisorId: string) => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
+        {/* Pending Plan Approvals Link */}
+        <Card className="mb-8 bg-gradient-to-r from-green-50 to-blue-50 border-green-200">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-green-900">
+                  <ClipboardCheck className="w-5 h-5" />
+                  Pending Plan Approvals
+                </CardTitle>
+                <CardDescription className="text-green-700">
+                  Review and approve student course plans awaiting your decision
+                </CardDescription>
+              </div>
+              <Button
+                onClick={() => navigate('/pending-approvals')}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                View Pending Plans
+              </Button>
+            </div>
+          </CardHeader>
+        </Card>
+
         {/* Student Selection */}
         <Card className="mb-8">
           <CardHeader>

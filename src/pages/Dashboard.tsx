@@ -7,7 +7,6 @@ import { useToast } from '@/hooks/use-toast';
 import {
   GraduationCap,
   Calendar,
-  FileText,
   MessageSquare,
   LogOut,
   User,
@@ -286,28 +285,6 @@ const Dashboard = () => {
               </Button>
             </CardContent>
           </Card>
-
-          {/* Pending Plan Approvals - Advisors and Admins */}
-          {(isAdvisor || isAdmin || advisorPending) && (
-            <Card className={`transition-all ${advisorPending ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-card cursor-pointer group'}`}>
-              <CardHeader>
-                <div className={`w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-2 ${!advisorPending && 'group-hover:bg-primary/20'} transition-colors`}>
-                  <FileText className="w-6 h-6 text-primary" />
-                </div>
-                <CardTitle className="text-lg">Pending Plan Approvals</CardTitle>
-                <CardDescription>Review student course plans</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button
-                  onClick={() => !advisorPending && navigate('/pending-approvals')}
-                  className="w-full"
-                  disabled={advisorPending}
-                >
-                  {advisorPending ? 'Approval Required' : 'Review Plans'}
-                </Button>
-              </CardContent>
-            </Card>
-          )}
 
           {/* Profile - All users */}
           <Card className="hover:shadow-card transition-all cursor-pointer group">

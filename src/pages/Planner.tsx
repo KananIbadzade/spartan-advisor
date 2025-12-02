@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { ArrowLeft, Plus, Trash2, GripVertical, ShoppingCart, Download, Clock } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, GripVertical, ShoppingCart, Download, Clock, XCircle, FileText } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -68,6 +68,7 @@ interface PlanCourse {
   year: string;
   term_order: number;
   position: number;
+  status: 'draft' | 'submitted' | 'approved' | 'declined';
   courses: Course;
 }
 
@@ -241,6 +242,25 @@ const Planner = () => {
           loadPlan();
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'student_plans'
+        },
+        (payload) => {
+          // When plan status changes (advisor approves/declines), update local state
+          if (payload.new && payload.new.id === planId) {
+            setPlanStatus(payload.new.status || 'draft');
+            toast({
+              title: 'Plan Status Updated',
+              description: `Your plan has been ${payload.new.status === 'approved' ? 'approved' : payload.new.status === 'declined' ? 'declined' : 'updated'} by your advisor.`,
+              variant: payload.new.status === 'approved' ? 'default' : payload.new.status === 'declined' ? 'destructive' : 'default'
+            });
+          }
+        }
+      )
       .subscribe();
 
     return () => {
@@ -285,7 +305,14 @@ const Planner = () => {
         const { data: courses } = await supabase
           .from('plan_courses')
           .select(`
-            *,
+            id,
+            plan_id,
+            course_id,
+            term,
+            year,
+            term_order,
+            position,
+            status,
             courses(
               *,
               departments(code, name)
@@ -415,7 +442,8 @@ const Planner = () => {
           term: validatedData.term,
           year: validatedData.year,
           term_order: termOrder,
-          position: maxPosition + 1
+          position: maxPosition + 1,
+          status: 'draft'
         });
 
       if (error) throw error;
@@ -564,6 +592,7 @@ const Planner = () => {
         year,
         term_order,
         position: maxPosition + 1,
+        status: 'draft',
       });
       if (error) throw error;
 
@@ -785,6 +814,125 @@ const Planner = () => {
               </div>
             )}
 
+            {/* Plan Status Alerts and Actions */}
+            {planStatus === 'declined' && (
+              <Card className="mb-6 border-destructive bg-destructive/5">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-4">
+                    <XCircle className="w-6 h-6 text-destructive flex-shrink-0 mt-1" />
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-destructive mb-2">Plan Declined</h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Your advisor has declined this plan. Please review their feedback, make necessary changes, and resubmit when ready.
+                      </p>
+                      <Button
+                        onClick={async () => {
+                          try {
+                            // First, update all draft courses to submitted
+                            const { error: coursesError } = await supabase
+                              .from('plan_courses')
+                              .update({ status: 'submitted' } as any)
+                              .eq('plan_id', planId)
+                              .eq('status', 'draft');
+
+                            if (coursesError) throw coursesError;
+
+                            // Then update the plan status
+                            const { error } = await supabase
+                              .from('student_plans')
+                              .update({
+                                status: 'submitted',
+                                submitted_at: new Date().toISOString()
+                              })
+                              .eq('id', planId);
+
+                            if (error) throw error;
+
+                            setPlanStatus('submitted');
+                            toast({
+                              title: 'Plan Resubmitted',
+                              description: 'Your plan has been sent to your advisor for review.'
+                            });
+                          } catch (err: any) {
+                            toast({
+                              title: 'Error',
+                              description: err.message,
+                              variant: 'destructive'
+                            });
+                          }
+                        }}
+                        className="gap-2"
+                      >
+                        <FileText className="w-4 h-4" />
+                        Submit to Advisor
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {(planStatus === 'draft' || planStatus === 'approved') && terms.length > 0 && planStatus !== 'submitted' && (
+              <Card className="mb-6 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-4">
+                    <FileText className="w-6 h-6 text-primary flex-shrink-0 mt-1" />
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-primary mb-2">
+                        {planStatus === 'approved' ? 'Approved Plan - Ready to Submit Changes' : 'Draft Plan'}
+                      </h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        {planStatus === 'approved'
+                          ? 'Your plan was previously approved. If you\'ve made changes, submit it again for advisor review.'
+                          : 'Your plan is currently in draft mode. When you\'re ready, submit it to your advisor for approval.'}
+                      </p>
+                      <Button
+                        onClick={async () => {
+                          try {
+                            // First, update all draft courses to submitted
+                            const { error: coursesError } = await supabase
+                              .from('plan_courses')
+                              .update({ status: 'submitted' } as any)
+                              .eq('plan_id', planId)
+                              .eq('status', 'draft');
+
+                            if (coursesError) throw coursesError;
+
+                            // Then update the plan status
+                            const { error } = await supabase
+                              .from('student_plans')
+                              .update({
+                                status: 'submitted',
+                                submitted_at: new Date().toISOString()
+                              })
+                              .eq('id', planId);
+
+                            if (error) throw error;
+
+                            setPlanStatus('submitted');
+                            toast({
+                              title: planStatus === 'approved' ? 'Changes Submitted' : 'Plan Submitted',
+                              description: 'Your plan has been sent to your advisor for review.'
+                            });
+                          } catch (err: any) {
+                            toast({
+                              title: 'Error',
+                              description: err.message,
+                              variant: 'destructive'
+                            });
+                          }
+                        }}
+                        className="gap-2"
+                      >
+                        <FileText className="w-4 h-4" />
+                        {planStatus === 'approved' ? 'Submit Changes to Advisor' : 'Submit to Advisor'}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {terms.length === 0 ? (
               <Card>
                 <CardContent className="py-12 text-center">
@@ -798,7 +946,7 @@ const Planner = () => {
             ) : (
               <div className="space-y-6">
                 {terms.map((term) => (
-                  <TermCard key={`${term.year}-${term.term}`} term={term} onDeleteCourse={handleDeleteCourse} />
+                  <TermCard key={`${term.year}-${term.term}`} term={term} onDeleteCourse={handleDeleteCourse} planStatus={planStatus} />
                 ))}
               </div>
             )}
@@ -852,13 +1000,27 @@ const Planner = () => {
                       term: course.term,
                       year: course.year,
                       term_order,
-                      position: maxPosition + 1
+                      position: maxPosition + 1,
+                      status: 'draft'
                     });
                     if (error) throw error;
                   }
 
-                  // Update plan status if submitting to advisor
+                  // Save original status for toast message
+                  const previousStatus = planStatus;
+
+                  // Update plan status based on submit toggle and current status
                   if (submitToAdvisor) {
+                    // Submitting to advisor - first update draft courses to submitted
+                    const { error: coursesError } = await supabase
+                      .from('plan_courses')
+                      .update({ status: 'submitted' } as any)
+                      .eq('plan_id', planId)
+                      .eq('status', 'draft');
+
+                    if (coursesError) throw coursesError;
+
+                    // Then update plan status
                     const { error: updateError } = await supabase
                       .from('student_plans')
                       .update({
@@ -868,18 +1030,41 @@ const Planner = () => {
                       .eq('id', planId);
 
                     if (updateError) throw updateError;
-
-                    // Update local state to reflect submission
                     setPlanStatus('submitted');
+                  } else if (planStatus === 'submitted' || planStatus === 'approved') {
+                    // If modifying a submitted/approved plan without resubmitting,
+                    // change to draft so student knows they need to resubmit
+                    const { error: updateError } = await supabase
+                      .from('student_plans')
+                      .update({
+                        status: 'draft'
+                      })
+                      .eq('id', planId);
+
+                    if (updateError) throw updateError;
+                    setPlanStatus('draft');
                   }
+                  // If already draft or declined, keep that status
 
                   clearCart();
-                  toast({
-                    title: submitToAdvisor ? 'Plan Submitted' : 'Plan Updated',
-                    description: submitToAdvisor
-                      ? `${courses.length} courses added and submitted to your advisor for review.`
-                      : `${courses.length} courses added to your plan.`
-                  });
+
+                  // Show appropriate message based on context
+                  if (submitToAdvisor) {
+                    toast({
+                      title: 'Plan Submitted',
+                      description: `${courses.length} courses added and submitted to your advisor for review.`
+                    });
+                  } else if (previousStatus === 'approved' || previousStatus === 'submitted') {
+                    toast({
+                      title: 'Courses Added - Plan Now Draft',
+                      description: `${courses.length} courses added. Your plan has been changed to draft. Submit when ready for review.`,
+                    });
+                  } else {
+                    toast({
+                      title: 'Plan Updated',
+                      description: `${courses.length} courses added to your plan.`
+                    });
+                  }
                 } catch (err: any) {
                   toast({
                     title: 'Error',
@@ -929,18 +1114,37 @@ const Planner = () => {
 interface TermCardProps {
   term: TermGroup;
   onDeleteCourse: (courseId: string) => void;
+  planStatus: 'draft' | 'submitted' | 'approved' | 'declined';
 }
 
-const TermCard = ({ term, onDeleteCourse }: TermCardProps) => {
+const TermCard = ({ term, onDeleteCourse, planStatus }: TermCardProps) => {
   const { toast } = useToast();
+
+  // Helper function to get course-level status badge
+  const getCourseStatusBadge = (status: 'draft' | 'submitted' | 'approved' | 'declined') => {
+    switch (status) {
+      case 'approved':
+        return <Badge className="bg-green-100 text-green-800 border-green-300 text-xs">✓ Approved</Badge>;
+      case 'declined':
+        return <Badge className="bg-red-100 text-red-800 border-red-300 text-xs">✗ Declined</Badge>;
+      case 'submitted':
+        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300 text-xs">⏳ Pending</Badge>;
+      default:
+        return <Badge variant="outline" className="text-xs">Draft</Badge>;
+    }
+  };
 
   return (
     <Card className="transition-colors hover:border-primary/30">
       <CardHeader>
-        <CardTitle>{term.term} {term.year}</CardTitle>
-        <CardDescription>
-          {term.courses.reduce((sum, c) => sum + c.courses.units, 0)} total units
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>{term.term} {term.year}</CardTitle>
+            <CardDescription>
+              {term.courses.reduce((sum, c) => sum + c.courses.units, 0)} total units
+            </CardDescription>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-2 min-h-[60px]">
@@ -957,6 +1161,14 @@ const TermCard = ({ term, onDeleteCourse }: TermCardProps) => {
               }}
               className="cursor-pointer"
             >
+              {/* Display course status badge */}
+              <div className="mt-2 pt-2 border-t border-border/50">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Status:</span>
+                  {getCourseStatusBadge(planCourse.status)}
+                </div>
+              </div>
+
               {/* Display schedule if available */}
               {planCourse.courses.schedule && planCourse.courses.schedule.length > 0 && (
                 <div className="mt-2 pt-2 border-t border-border/50">
