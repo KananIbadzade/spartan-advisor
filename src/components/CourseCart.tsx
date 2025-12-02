@@ -29,26 +29,49 @@ export interface CourseCartItem extends Course {
   notes?: string;
 }
 
-export const useCourseCartManager = () => {
-  const [cartItems, setCartItems] = React.useState<CourseCartItem[]>([]);
-  const addCourse = (course: Course, priority: 'high' | 'medium' | 'low' = 'medium', notes?: string) => {
+export function useCourseCartManager() {
+  const [cartItems, setCartItems] = useState<CourseCartItem[]>([]);
+
+  const addCourse = (course: Omit<CourseCartItem, 'priority' | 'notes'>, priority: 'high' | 'medium' | 'low' = 'medium') => {
     setCartItems(prev => {
       if (prev.find(c => c.id === course.id && c.term === course.term && c.year === course.year)) return prev;
-      return [...prev, { ...course, addedAt: new Date().toISOString(), priority, notes }];
+      return [...prev, { ...course, addedAt: new Date().toISOString(), priority }];
     });
   };
+
   const removeCourse = (courseId: string) => {
     setCartItems(prev => prev.filter(c => c.id !== courseId));
   };
-  const clearCart = () => setCartItems([]);
-  const updateCoursePriority = (courseId: string, priority: 'high' | 'medium' | 'low') =>
-    setCartItems(prev => prev.map(c => c.id === courseId ? { ...c, priority } : c));
-  // New: update notes for a cart item
-  const updateCourseNotes = (courseId: string, notes: string) =>
-    setCartItems(prev => prev.map(c => c.id === courseId ? { ...c, notes } : c));
 
-  return { cartItems, addCourse, removeCourse, clearCart, updateCoursePriority, updateCourseNotes };
-};
+  const updateCoursePriority = (courseId: string, priority: 'high' | 'medium' | 'low') => {
+    setCartItems(prev =>
+      prev.map(item =>
+        item.id === courseId ? { ...item, priority } : item
+      )
+    );
+  };
+
+  const updateCourseNotes = (courseId: string, notes: string) => {
+    setCartItems(prev =>
+      prev.map(item =>
+        item.id === courseId ? { ...item, notes } : item
+      )
+    );
+  };
+
+  const clearCart = () => {
+    setCartItems([]);
+  };
+
+  return {
+    cartItems,
+    addCourse,
+    removeCourse,
+    clearCart,
+    updateCoursePriority,
+    updateCourseNotes
+  };
+}
 
 interface CourseCartProps {
   layoutMode?: 'overlay' | 'split'; // NEW

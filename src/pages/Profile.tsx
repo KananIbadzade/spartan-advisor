@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft } from 'lucide-react';
 import { z } from 'zod';
 
-const profileSchema = z.object({
+const baseProfileSchema = z.object({
   first_name: z.string()
     .trim()
     .min(1, 'First name is required')
@@ -19,6 +19,15 @@ const profileSchema = z.object({
     .trim()
     .min(1, 'Last name is required')
     .max(100, 'Last name must be less than 100 characters'),
+  department: z.string()
+    .trim()
+    .max(100, 'Department must be less than 100 characters')
+    .optional()
+    .or(z.literal(''))
+});
+
+// Student-specific fields live only on student profiles
+const studentFieldsSchema = z.object({
   student_id: z.string()
     .trim()
     .max(20, 'Student ID must be less than 20 characters')
@@ -32,17 +41,13 @@ const profileSchema = z.object({
     .or(z.literal('')),
   catalog_year: z.string().optional().or(z.literal('')),
   year_in_school: z.string().optional().or(z.literal('')),
-  department: z.string()
-    .trim()
-    .max(100, 'Department must be less than 100 characters')
-    .optional()
-    .or(z.literal(''))
 });
 
 const Profile = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [role, setRole] = useState<'student' | 'advisor' | 'admin' | null>(null);
   const [profile, setProfile] = useState({
     first_name: '',
     last_name: '',
@@ -71,6 +76,19 @@ const Profile = () => {
         .eq('id', user.id)
         .single();
 
+      // Also load the user's primary role to tailor the form
+      const { data: roles } = await supabase
+        .from('user_roles')
+        .select('role, status')
+        .eq('user_id', user.id);
+
+      if (roles && roles.length > 0) {
+        const active = roles.find(r => r.status === 'active') || roles[0];
+        if (active.role === 'student' || active.role === 'advisor' || active.role === 'admin') {
+          setRole(active.role);
+        }
+      }
+
       if (data) {
         setProfile({
           first_name: data.first_name || '',
@@ -95,8 +113,13 @@ const Profile = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user found');
 
-      // Validate profile data
-      const validatedData = profileSchema.parse(profile);
+      // Pick schema based on role: advisors/admins only use base fields,
+      // students use full student profile schema.
+      const schema = role === 'student'
+        ? baseProfileSchema.merge(studentFieldsSchema)
+        : baseProfileSchema;
+
+      const validatedData = schema.parse(profile);
 
       const { error } = await supabase
         .from('profiles')
@@ -109,8 +132,6 @@ const Profile = () => {
         title: "Success",
         description: "Your profile has been updated",
       });
-
-      navigate('/dashboard');
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         toast({
@@ -181,16 +202,22 @@ const Profile = () => {
             Back to Dashboard
           </Button>
           <h1 className="text-3xl font-bold text-primary-foreground">Your Profile</h1>
-          <p className="text-primary-foreground/80">Manage your student information</p>
+          <p className="text-primary-foreground/80">
+            {role === 'advisor' || role === 'admin'
+              ? 'Manage your advisor profile information'
+              : 'Manage your student information'}
+          </p>
         </div>
       </header>
 
       <main className="container mx-auto px-4 py-8 max-w-2xl">
         <Card className="shadow-card">
           <CardHeader>
-            <CardTitle>Student Information</CardTitle>
+            <CardTitle>{role === 'advisor' || role === 'admin' ? 'Advisor Information' : 'Student Information'}</CardTitle>
             <CardDescription>
-              Keep your information up to date for accurate course recommendations
+              {role === 'advisor' || role === 'admin'
+                ? 'Keep your contact and department information up to date'
+                : 'Keep your information up to date for accurate course recommendations'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -216,65 +243,69 @@ const Profile = () => {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="student_id">Student ID</Label>
-                <Input
-                  id="student_id"
-                  placeholder="e.g., 012345678"
-                  value={profile.student_id}
-                  onChange={(e) => setProfile({ ...profile, student_id: e.target.value })}
-                />
-              </div>
+              {role === 'student' && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="student_id">Student ID</Label>
+                    <Input
+                      id="student_id"
+                      placeholder="e.g., 012345678"
+                      value={profile.student_id}
+                      onChange={(e) => setProfile({ ...profile, student_id: e.target.value })}
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="major">Major</Label>
-                <Input
-                  id="major"
-                  placeholder="e.g., Computer Science"
-                  value={profile.major}
-                  onChange={(e) => setProfile({ ...profile, major: e.target.value })}
-                />
-              </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="major">Major</Label>
+                    <Input
+                      id="major"
+                      placeholder="e.g., Computer Science"
+                      value={profile.major}
+                      onChange={(e) => setProfile({ ...profile, major: e.target.value })}
+                    />
+                  </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="catalog_year">Catalog Year</Label>
-                  <Select
-                    value={profile.catalog_year}
-                    onValueChange={(value) => setProfile({ ...profile, catalog_year: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select year" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="2024-2025">2024-2025</SelectItem>
-                      <SelectItem value="2023-2024">2023-2024</SelectItem>
-                      <SelectItem value="2022-2023">2022-2023</SelectItem>
-                      <SelectItem value="2021-2022">2021-2022</SelectItem>
-                      <SelectItem value="2020-2021">2020-2021</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="catalog_year">Catalog Year</Label>
+                      <Select
+                        value={profile.catalog_year}
+                        onValueChange={(value) => setProfile({ ...profile, catalog_year: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select year" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="2024-2025">2024-2025</SelectItem>
+                          <SelectItem value="2023-2024">2023-2024</SelectItem>
+                          <SelectItem value="2022-2023">2022-2023</SelectItem>
+                          <SelectItem value="2021-2022">2021-2022</SelectItem>
+                          <SelectItem value="2020-2021">2020-2021</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="year_in_school">Year in School</Label>
-                  <Select
-                    value={profile.year_in_school}
-                    onValueChange={(value) => setProfile({ ...profile, year_in_school: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select year" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="freshman">Freshman</SelectItem>
-                      <SelectItem value="sophomore">Sophomore</SelectItem>
-                      <SelectItem value="junior">Junior</SelectItem>
-                      <SelectItem value="senior">Senior</SelectItem>
-                      <SelectItem value="graduate">Graduate</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="year_in_school">Year in School</Label>
+                      <Select
+                        value={profile.year_in_school}
+                        onValueChange={(value) => setProfile({ ...profile, year_in_school: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select year" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="freshman">Freshman</SelectItem>
+                          <SelectItem value="sophomore">Sophomore</SelectItem>
+                          <SelectItem value="junior">Junior</SelectItem>
+                          <SelectItem value="senior">Senior</SelectItem>
+                          <SelectItem value="graduate">Graduate</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="department">Department</Label>

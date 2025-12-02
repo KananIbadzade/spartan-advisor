@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { MessageCircle, Send, User } from 'lucide-react';
+import { MessageCircle, Send, Trash2, User } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -30,6 +30,7 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
   const [resolvedAdvisorId, setResolvedAdvisorId] = useState<string | null>(advisorId || null);
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [profilesById, setProfilesById] = useState<Record<string, { first_name: string | null; last_name: string | null }>>({});
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -46,20 +47,23 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
     if (studentId && resolvedAdvisorId) {
       loadMessages();
 
-      // Subscribe to new messages
+      // Subscribe to all message changes for this student so both
+      // advisor and student views stay in sync when messages are
+      // added or cleared.
       const channel = supabase
-        .channel('plan_messages')
+        .channel(`plan_messages_${studentId}`)
         .on(
           'postgres_changes',
           {
-            event: 'INSERT',
+            event: '*',
             schema: 'public',
             table: 'plan_messages',
             filter: `student_id=eq.${studentId}`
           },
-          (payload) => {
-            console.log('New message received:', payload);
-            setMessages((current) => [...current, payload.new as Message]);
+          () => {
+            // Reload from the database on any insert/update/delete
+            // so refreshes and clears stay consistent for both sides.
+            loadMessages();
           }
         )
         .subscribe();
@@ -103,7 +107,10 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
 
   const loadMessages = async () => {
     if (!resolvedAdvisorId) {
-      console.log('Cannot load messages - resolvedAdvisorId is null');
+      console.log('❌ Cannot load messages - resolvedAdvisorId is null');
+      console.log('   This means either:');
+      console.log('   1. No advisor_assignments row exists for studentId:', studentId);
+      console.log('   2. advisorId prop was not passed to PlanDiscussion');
       return;
     }
 
@@ -112,39 +119,66 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
 
       // Debug: Check current user
       const { data: { user: currentUser } } = await supabase.auth.getUser();
-      console.log('Current logged-in user:', currentUser?.id);
-      console.log('Loading messages for student:', studentId, 'advisor:', resolvedAdvisorId);
-      console.log('User match:', currentUser?.id === studentId);
+      console.log('✅ Loading messages...');
+      console.log('   Current user:', currentUser?.id);
+      console.log('   Student ID:', studentId);
+      console.log('   Advisor ID:', resolvedAdvisorId);
+      console.log('   Current role:', currentUserRole);
 
-      // Load all messages for this student
+      // Load all messages for this student using raw SQL to bypass TypeScript type issues
       // RLS policies will ensure advisors can only see messages for their assigned students
-      const { data, error } = await supabase
-        .from('plan_messages')
+      const { data, error }: any = await supabase
+        .from('plan_messages' as any)
         .select('*')
         .eq('student_id', studentId)
         .order('created_at', { ascending: true });
 
-      console.log('Messages loaded:', data);
-      console.log('Messages error:', error);
-
-      // Debug: Check if there are ANY messages for this student
-      const { data: allMessages } = await supabase
-        .from('plan_messages')
-        .select('*')
-        .eq('student_id', studentId);
-      console.log('ALL messages for student (unfiltered):', allMessages);
+      if (error) {
+        console.error('❌ Error loading messages:', error);
+        console.error('   Error details:', JSON.stringify(error, null, 2));
+      } else {
+        console.log('✅ Messages loaded successfully:', data?.length || 0, 'messages');
+      }
 
       if (error) {
-        console.error('Error loading messages:', error);
+        // Show RLS-specific guidance
+        if (error.message?.includes('policy')) {
+          console.error('❌ RLS Policy Error - User does not have permission to view these messages');
+          console.error('   Check that:');
+          console.error('   1. advisor_assignments table has a row linking this advisor to this student');
+          console.error('   2. RLS policies on plan_messages allow SELECT for this user');
+        }
         toast({
           title: 'Error',
-          description: 'Failed to load messages',
+          description: 'Failed to load messages. Check console for details.',
           variant: 'destructive'
         });
         return;
       }
 
-      setMessages(data || []);
+      const rows = (data || []) as Message[];
+
+      // Fetch sender profiles for all unique sender_ids
+      const senderIds = [...new Set(rows.map(m => m.sender_id))];
+      if (senderIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name')
+          .in('id', senderIds);
+
+        if (profiles) {
+          const nextProfiles: Record<string, { first_name: string | null; last_name: string | null }> = { ...profilesById };
+          profiles.forEach(p => {
+            nextProfiles[p.id] = {
+              first_name: p.first_name,
+              last_name: p.last_name
+            };
+          });
+          setProfilesById(nextProfiles);
+        }
+      }
+
+      setMessages(rows);
     } catch (error) {
       console.error('Caught error loading messages:', error);
     } finally {
@@ -176,8 +210,8 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
 
       console.log('Attempting to insert message:', messageData);
 
-      const { data: insertedData, error } = await supabase
-        .from('plan_messages')
+      const { data: insertedData, error }: any = await supabase
+        .from('plan_messages' as any)
         .insert(messageData)
         .select();
 
@@ -185,18 +219,35 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
       console.log('Insert error:', error);
 
       if (error) {
-        console.error('Error sending message:', error);
+        console.error('❌ Error sending message:', error);
+        console.error('   Error details:', JSON.stringify(error, null, 2));
+        
+        // Provide specific guidance based on error type
+        let errorDescription = 'Failed to send message';
+        if (error.message?.includes('policy') || error.code === '42501') {
+          errorDescription = 'No advisor assigned. Please contact an administrator to assign an advisor.';
+          console.error('   RLS Policy Error - likely no advisor_assignments row exists');
+          console.error('   Student ID:', studentId);
+          console.error('   Advisor ID:', resolvedAdvisorId);
+          console.error('   Current user:', user.id);
+        }
+        
         toast({
           title: 'Error',
-          description: 'Failed to send message',
+          description: errorDescription,
           variant: 'destructive'
         });
         return;
       }
 
-      // Immediately add the message to local state for instant feedback
+      // Only add to local state if database insert was successful
       if (insertedData && insertedData.length > 0) {
+        console.log('✅ Message sent successfully');
+        // Immediately add to local state for instant UI feedback
+        // The realtime subscription will also pick it up, but this is faster
         setMessages((current) => [...current, insertedData[0] as Message]);
+      } else {
+        console.warn('⚠️ Insert succeeded but no data returned');
       }
 
       setNewMessage('');
@@ -219,18 +270,93 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
     }
   };
 
+  const handleClearConversation = async () => {
+    if (!studentId) return;
+
+    try {
+      setLoading(true);
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast({
+          title: 'Error',
+          description: 'You must be logged in to clear messages',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      // Only advisors (or admins accessing via advisor tools) should be able to clear
+      if (currentUserRole !== 'advisor') {
+        toast({
+          title: 'Not allowed',
+          description: 'Only advisors can clear the conversation.',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      const { error }: any = await supabase
+        .from('plan_messages' as any)
+        .delete()
+        .eq('student_id', studentId);
+
+      if (error) {
+        console.error('Error clearing messages:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to clear conversation',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      // Local clear for advisor; student view will clear on next realtime refresh
+      setMessages([]);
+      toast({
+        title: 'Conversation cleared',
+        description: 'Plan discussion messages have been cleared for this student.',
+      });
+    } catch (error) {
+      console.error('Error clearing conversation:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to clear conversation',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <MessageCircle className="w-5 h-5" />
-          Plan Discussion
-        </CardTitle>
-        <CardDescription>
-          {currentUserRole === 'advisor'
-            ? `Conversation with ${studentName || 'student'} about their plan`
-            : 'Discuss your plan with your advisor'}
-        </CardDescription>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <MessageCircle className="w-5 h-5" />
+              Plan Discussion
+            </CardTitle>
+            <CardDescription>
+              {currentUserRole === 'advisor'
+                ? `Conversation with ${studentName || 'student'} about their plan`
+                : 'Discuss your plan with your advisor'}
+            </CardDescription>
+          </div>
+          {currentUserRole === 'advisor' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 text-destructive hover:text-destructive"
+              onClick={handleClearConversation}
+              disabled={loading || messages.length === 0}
+            >
+              <Trash2 className="w-3 h-3" />
+              Clear
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -255,6 +381,14 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
                   const isFromAdvisor = !isFromStudent;
                   const isOwnMessage = currentUserRole === 'advisor' ? isFromAdvisor : isFromStudent;
 
+                  const profile = profilesById[msg.sender_id];
+                  const hasName = profile && (profile.first_name || profile.last_name);
+                  const displayName = hasName
+                    ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim()
+                    : isFromAdvisor
+                      ? 'Advisor'
+                      : 'Student';
+
                   return (
                     <div
                       key={msg.id}
@@ -270,7 +404,7 @@ export const PlanDiscussion = ({ studentId, advisorId, currentUserRole, studentN
                         <div className="flex items-center gap-2 mb-1">
                           <User className="w-3 h-3" />
                           <span className="text-xs font-semibold">
-                            {isFromAdvisor ? 'Advisor' : 'Student'}
+                            {displayName}
                           </span>
                           <span className="text-xs opacity-70">
                             {new Date(msg.created_at).toLocaleString()}

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { ArrowLeft, Plus, Trash2, GripVertical, ShoppingCart, Download, Clock, XCircle, FileText } from 'lucide-react';
+
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -24,6 +25,7 @@ import { CourseTypeBadge, ColorCodedCourseCard, CourseTypeLegend, courseTypeConf
 import { SchedulePDFExporter } from '@/components/SchedulePDFExporter';
 import { DisplaySuggestions } from '@/components/DisplaySuggestions';
 import { PlanDiscussion } from '@/components/PlanDiscussion';
+import { autoPopulatePlannerFromTranscript, getCompletedCourseCodes } from '@/lib/transcriptPlannerIntegration';
 
 const planCourseSchema = z.object({
   term: z.enum(['Fall', 'Spring', 'Summer', 'Winter'], {
@@ -138,6 +140,23 @@ const Planner = () => {
   // Add missing PDF export state
   const [showPDFExport, setShowPDFExport] = useState(false);
 
+  // Transcript integration state
+  const [completedCourseCodes, setCompletedCourseCodes] = useState<string[]>([]);
+  const [isAutoPopulating, setIsAutoPopulating] = useState(false);
+
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: () => {},
+  });
+
   // New feature integrations
   const { isOpen: isCartOpen, toggleCart } = useCourseCart();
   const {
@@ -188,7 +207,18 @@ const Planner = () => {
     loadAllCourses();
     loadDepartments();
     const cleanup = setupRealtimeSubscription();
-    return cleanup;
+
+    // Listen for chatbot plan changes
+    const handlePlannerChanged = () => {
+      console.log('[PLANNER] Refresh triggered by chatbot');
+      loadPlan();
+    };
+    window.addEventListener('plannerChanged', handlePlannerChanged);
+
+    return () => {
+      cleanup();
+      window.removeEventListener('plannerChanged', handlePlannerChanged);
+    };
   }, []);
 
   useEffect(() => {
@@ -199,6 +229,7 @@ const Planner = () => {
     const loadRole = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+      setUser(user);
       const { data, error } = await supabase
         .from('user_roles')
         .select('role')
@@ -209,17 +240,28 @@ const Planner = () => {
     loadRole();
   }, []);
 
+  // Load completed courses from transcript
+  useEffect(() => {
+    const loadCompletedCourses = async () => {
+      if (!user) return;
+      const codes = await getCompletedCourseCodes(user.id);
+      setCompletedCourseCodes(codes);
+      console.log('Loaded completed courses:', codes);
+    };
+    loadCompletedCourses();
+  }, [user]);
+
   useEffect(() => {
     if (!planId || !user) return;
     const loadAdvisorFeedback = async () => {
       // Fetch notes/suggestions by student_id instead of plan_id
-      const { data: notes } = await supabase
-        .from('advisor_notes')
+      const { data: notes }: any = await supabase
+        .from('advisor_notes' as any)
         .select('*')
         .eq('student_id', user.id)
         .order('created_at', { ascending: false });
-      const { data: suggestions } = await supabase
-        .from('advisor_suggestions')
+      const { data: suggestions }: any = await supabase
+        .from('advisor_suggestions' as any)
         .select('*')
         .eq('student_id', user.id)
         .order('created_at', { ascending: false });
@@ -303,7 +345,7 @@ const Planner = () => {
 
       // Load plan courses with enhanced data for conflict detection
       if (plans && plans.length > 0) {
-        const { data: courses } = await supabase
+        const { data: courses }: any = await supabase
           .from('plan_courses')
           .select(`
             id,
@@ -324,7 +366,7 @@ const Planner = () => {
           .order('position');
 
         // Add course types for color coding
-        const enhancedCourses = (courses || []).map(course => {
+        const enhancedCourses = (courses || []).map((course: any) => {
           // Recalculate term_order to ensure correct sorting
           const termOrderMap: { [key: string]: number } = {
             'Spring': 1,
@@ -360,10 +402,29 @@ const Planner = () => {
   };
 
   // Helper function to determine course type based on course code
-  const determineCourseType = (course: any) => {
-    if (course.course_code === 'CS') return 'major-requirement';
-    if (course.course_code === 'MATH') return 'prerequisite';
-    if (course.course_code === 'ENGL') return 'general-education';
+  const determineCourseType = (course: any): CourseType => {
+    // If course already has a type from database, use it
+    if (course.type) return course.type;
+    
+    // Fallback heuristics
+    const code = course.course_code?.toUpperCase() || '';
+    
+    // Major requirements (CS/CMPE for CS majors)
+    if (['CS', 'CMPE', 'SE'].includes(code)) {
+      return 'major-requirement';
+    }
+    
+    // Prerequisites (MATH, PHYS)
+    if (['MATH', 'PHYS', 'CHEM'].includes(code)) {
+      return 'prerequisite';
+    }
+    
+    // General Education
+    if (['ENGL', 'HIST', 'PHIL', 'PSYC', 'SOC', 'ECON', 'POLI'].includes(code)) {
+      return 'general-education';
+    }
+    
+    // Default to free elective
     return 'free-elective';
   };
 
@@ -509,6 +570,7 @@ const Planner = () => {
         units: course.units,
         term: selectedTerm,
         year: selectedYear,
+        addedAt: new Date().toISOString(),
       },
       'medium'
     );
@@ -525,30 +587,130 @@ const Planner = () => {
   };
 
   const handleDeleteCourse = async (courseId: string) => {
-    if (!confirm('Delete this course from your plan?')) return;
+    setConfirmDialog({
+      open: true,
+      title: 'Delete Course',
+      description: 'Are you sure you want to remove this course from your plan? This action cannot be undone.',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('plan_courses')
+            .delete()
+            .eq('id', courseId);
 
-    try {
-      const { error } = await supabase
-        .from('plan_courses')
-        .delete()
-        .eq('id', courseId);
+          if (error) throw error;
 
-      if (error) throw error;
+          toast({
+            title: 'Success',
+            description: 'Course removed from plan',
+          });
 
-      // Update local state immediately for instant feedback
-      setPlanCourses(prev => prev.filter(c => c.id !== courseId));
+          // Reload plan to refresh the view immediately
+          await loadPlan();
+        } catch (error: any) {
+          toast({
+            title: 'Error',
+            description: error.message,
+            variant: 'destructive',
+          });
+        }
+        setConfirmDialog({ ...confirmDialog, open: false });
+      },
+    });
+  };
 
+  // Auto-populate planner from transcript
+  const handleAutoPopulateFromTranscript = async () => {
+    if (!user || !planId) {
       toast({
-        title: 'Success',
-        description: 'Course removed from plan',
+        title: 'Error',
+        description: 'You must be logged in with an active plan',
+        variant: 'destructive',
       });
+      return;
+    }
+
+    setIsAutoPopulating(true);
+    try {
+      const result = await autoPopulatePlannerFromTranscript(user.id, planId);
+
+      if (result.success) {
+        toast({
+          title: 'Success',
+          description: `Added ${result.added} courses from your transcript. ${result.skipped} skipped (not in database).`,
+        });
+
+        // Reload completed courses
+        const codes = await getCompletedCourseCodes(user.id);
+        setCompletedCourseCodes(codes);
+
+        // Reload plan to show newly added courses immediately
+        await loadPlan();
+
+        if (result.errors.length > 0) {
+          console.log('Auto-populate errors:', result.errors);
+        }
+      } else {
+        toast({
+          title: 'Error',
+          description: result.errors[0] || 'Failed to import transcript courses',
+          variant: 'destructive',
+        });
+      }
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: error.message,
+        description: error.message || 'Failed to import transcript courses',
         variant: 'destructive',
       });
+    } finally {
+      setIsAutoPopulating(false);
     }
+  };
+
+  // Clear all courses from a specific semester
+  const handleClearSemester = async (term: string, year: string) => {
+    if (!planId) {
+      toast({
+        title: 'Error',
+        description: 'No active plan found',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setConfirmDialog({
+      open: true,
+      title: 'Clear Semester',
+      description: `Are you sure you want to remove all courses from ${term} ${year}? This action cannot be undone.`,
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('plan_courses')
+            .delete()
+            .eq('plan_id', planId)
+            .eq('term', term)
+            .eq('year', year);
+
+          if (error) throw error;
+
+          toast({
+            title: 'Success',
+            description: `All courses removed from ${term} ${year}`,
+          });
+
+          // Reload plan to refresh the view
+          await loadPlan();
+        } catch (error: any) {
+          toast({
+            title: 'Error',
+            description: error.message || 'Failed to clear semester courses',
+            variant: 'destructive',
+          });
+        }
+        setConfirmDialog({ ...confirmDialog, open: false });
+      },
+    });
   };
 
   // Convert plan data for PDF export
@@ -612,17 +774,23 @@ const Planner = () => {
   };
 
   // Derive conflict detection from current plan (NOT cart)
+  // Filter out completed courses - they don't have time conflicts since they're already taken
   const { conflicts, hasConflicts } = useConflictDetection(
-    planCourses.map(pc => ({
-      id: pc.id,
-      course_code: pc.courses.course_code,
-      course_number: pc.courses.course_number || '',
-      title: pc.courses.title,
-      units: pc.courses.units,
-      term: pc.term,
-      year: pc.year,
-      schedule: pc.courses.schedule || []
-    }))
+    planCourses
+      .filter(pc => {
+        const courseCode = `${pc.courses.course_code} ${pc.courses.course_number}`;
+        return !completedCourseCodes.includes(courseCode);
+      })
+      .map(pc => ({
+        id: pc.id,
+        course_code: pc.courses.course_code,
+        course_number: pc.courses.course_number || '',
+        title: pc.courses.title,
+        units: pc.courses.units,
+        term: pc.term,
+        year: pc.year,
+        schedule: pc.courses.schedule || []
+      }))
   );
 
   if (loading) {
@@ -657,6 +825,14 @@ const Planner = () => {
               </div>
             </div>
             <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                className="gap-2 bg-green-600 hover:bg-green-700 text-white"
+                onClick={handleAutoPopulateFromTranscript}
+                disabled={isAutoPopulating}
+              >
+                {isAutoPopulating ? 'Importing...' : 'Import from Transcript'}
+              </Button>
               <Button variant="secondary" className="gap-2" onClick={toggleCart}>
                 <ShoppingCart className="w-4 h-4" />
                 Cart
@@ -786,7 +962,7 @@ const Planner = () => {
             {/* Conflict Alerts */}
             {hasConflicts && (
               <div className="mb-6">
-                <ConflictIndicator conflicts={conflicts} />
+                <ConflictIndicator conflicts={Array.isArray(conflicts) ? conflicts : conflicts.conflicts} />
               </div>
             )}
 
@@ -929,7 +1105,14 @@ const Planner = () => {
             ) : (
               <div className="space-y-6">
                 {terms.map((term) => (
-                  <TermCard key={`${term.year}-${term.term}`} term={term} onDeleteCourse={handleDeleteCourse} planStatus={planStatus} />
+                  <TermCard 
+                    key={`${term.year}-${term.term}`} 
+                    term={term} 
+                    onDeleteCourse={handleDeleteCourse} 
+                    onClearSemester={handleClearSemester}
+                    completedCourseCodes={completedCourseCodes}
+                    planStatus={planStatus}
+                  />
                 ))}
               </div>
             )}
@@ -1089,6 +1272,30 @@ const Planner = () => {
         </Dialog>
       )}
 
+      {/* Confirmation Dialog */}
+      <Dialog open={confirmDialog.open} onOpenChange={(open) => setConfirmDialog({ ...confirmDialog, open })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{confirmDialog.title}</DialogTitle>
+            <DialogDescription>{confirmDialog.description}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDialog({ ...confirmDialog, open: false })}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDialog.onConfirm}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ChatbotWidget />
     </div>
   );
@@ -1097,10 +1304,12 @@ const Planner = () => {
 interface TermCardProps {
   term: TermGroup;
   onDeleteCourse: (courseId: string) => void;
+  onClearSemester: (term: string, year: string) => void;
+  completedCourseCodes: string[];
   planStatus: 'draft' | 'submitted' | 'approved' | 'declined';
 }
 
-const TermCard = ({ term, onDeleteCourse, planStatus }: TermCardProps) => {
+const TermCard = ({ term, onDeleteCourse, onClearSemester, completedCourseCodes, planStatus }: TermCardProps) => {
   const { toast } = useToast();
 
   // Helper function to get course-level status badge
@@ -1117,6 +1326,7 @@ const TermCard = ({ term, onDeleteCourse, planStatus }: TermCardProps) => {
     }
   };
 
+
   return (
     <Card className="transition-colors hover:border-primary/30">
       <CardHeader>
@@ -1127,78 +1337,101 @@ const TermCard = ({ term, onDeleteCourse, planStatus }: TermCardProps) => {
               {term.courses.reduce((sum, c) => sum + c.courses.units, 0)} total units
             </CardDescription>
           </div>
+          <Button
+            variant="destructive"
+            size="sm"
+            className="gap-2"
+            onClick={() => onClearSemester(term.term, term.year)}
+          >
+            <XCircle className="w-4 h-4" />
+            Clear Semester
+          </Button>
         </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-2 min-h-[60px]">
-          {term.courses.map(planCourse => (
-            <ColorCodedCourseCard
-              key={planCourse.id}
-              course={{
-                id: planCourse.id,
-                course_code: planCourse.courses.course_code,
-                course_number: planCourse.courses.course_number || '',
-                title: planCourse.courses.title,
-                units: planCourse.courses.units,
-                type: planCourse.courses.type || 'free-elective'
-              }}
-              className="cursor-pointer"
-            >
-              {/* Display course status badge */}
-              <div className="mt-2 pt-2 border-t border-border/50">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Status:</span>
-                  {getCourseStatusBadge(planCourse.status)}
-                </div>
-              </div>
+          {term.courses.map(planCourse => {
+            const courseCode = `${planCourse.courses.course_code} ${planCourse.courses.course_number}`;
+            const isCompleted = completedCourseCodes.includes(courseCode);
 
-              {/* Display schedule if available */}
-              {planCourse.courses.schedule && planCourse.courses.schedule.length > 0 && (
+            return (
+              <ColorCodedCourseCard
+                key={planCourse.id}
+                course={{
+                  id: planCourse.id,
+                  course_code: planCourse.courses.course_code,
+                  course_number: planCourse.courses.course_number || '',
+                  title: planCourse.courses.title,
+                  units: planCourse.courses.units,
+                  type: planCourse.courses.type || 'free-elective'
+                }}
+                className="cursor-pointer"
+              >
+                {/* Completed course indicator */}
+                {isCompleted && (
+                  <div className="mt-2 pt-2 border-t border-border/50">
+                    <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded inline-block">
+                      ✓ Completed (from transcript)
+                    </span>
+                  </div>
+                )}
+
+                {/* Display course status badge */}
                 <div className="mt-2 pt-2 border-t border-border/50">
-                  <div className="flex items-start gap-2">
-                    <Clock className="w-3 h-3 text-muted-foreground mt-0.5" />
-                    <div className="flex-1 space-y-1">
-                      {planCourse.courses.schedule.map((time: any, idx: number) => (
-                        <div key={idx} className="text-xs text-muted-foreground">
-                          <span className="font-medium">{time.day}</span>: {time.startTime} - {time.endTime}
-                          {time.room && <span className="ml-2">({time.room})</span>}
-                        </div>
-                      ))}
-                    </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Status:</span>
+                    {getCourseStatusBadge(planCourse.status)}
                   </div>
                 </div>
-              )}
 
-              <div className="flex justify-between items-center gap-2 mt-2">
-                {!planCourse.courses.schedule || planCourse.courses.schedule.length === 0 ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs gap-1"
-                    onClick={() => {
-                      toast({
-                        title: 'Add Class Times',
-                        description: 'Feature coming soon! You can add schedule times to detect conflicts.',
-                      });
-                    }}
-                  >
-                    <Clock className="w-3 h-3" />
-                    Add Times
-                  </Button>
-                ) : (
-                  <div />
+                {/* Display schedule if available */}
+                {planCourse.courses.schedule && planCourse.courses.schedule.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-border/50">
+                    <div className="flex items-start gap-2">
+                      <Clock className="w-3 h-3 text-muted-foreground mt-0.5" />
+                      <div className="flex-1 space-y-1">
+                        {planCourse.courses.schedule.map((time: any, idx: number) => (
+                          <div key={idx} className="text-xs text-muted-foreground">
+                            <span className="font-medium">{time.day}</span>: {time.startTime} - {time.endTime}
+                            {time.room && <span className="ml-2">({time.room})</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onDeleteCourse(planCourse.id)}
-                  className="text-destructive hover:text-destructive"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-            </ColorCodedCourseCard>
-          ))}
+
+                <div className="flex justify-between items-center gap-2 mt-2">
+                  {!planCourse.courses.schedule || planCourse.courses.schedule.length === 0 ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs gap-1"
+                      onClick={() => {
+                        toast({
+                          title: 'Add Class Times',
+                          description: 'Feature coming soon! You can add schedule times to detect conflicts.',
+                        });
+                      }}
+                    >
+                      <Clock className="w-3 h-3" />
+                      Add Times
+                    </Button>
+                  ) : (
+                    <div />
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onDeleteCourse(planCourse.id)}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </ColorCodedCourseCard>
+            );
+          })}
           {term.courses.length === 0 && (
             <div className="text-center py-8 text-muted-foreground text-sm">
               No courses in this term
