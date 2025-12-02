@@ -168,7 +168,7 @@ const loadAssignedStudents = async (advisorId: string) => {
     }
   };
 
-  const handleAddSuggestion = async (courseId: string, content?: string) => {
+  const handleAddSuggestion = async (courseId: string, content?: string, term?: string, year?: string) => {
     if (!selectedStudent) {
       toast({
         title: 'Error',
@@ -183,7 +183,9 @@ const loadAssignedStudents = async (advisorId: string) => {
       await addAdvisorSuggestion({
         student_id: selectedStudent,
         course_id: courseId,
-        content
+        content,
+        term,
+        year
       });
 
       toast({

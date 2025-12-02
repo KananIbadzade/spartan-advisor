@@ -18,7 +18,8 @@ import {
 } from 'lucide-react';
 import RoleBadge from '@/components/RoleBadge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { DisplayNotes, DisplaySuggestions } from '@/components/AdvisorNotes';
+import { DisplayNotes } from '@/components/AdvisorNotes';
+import { DisplaySuggestions } from '@/components/DisplaySuggestions';
 
 const Dashboard = () => {
   const navigate = useNavigate();

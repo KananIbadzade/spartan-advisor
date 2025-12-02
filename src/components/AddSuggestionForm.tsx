@@ -18,7 +18,7 @@ interface Course {
 interface AddSuggestionFormProps {
   studentId: string;
   studentName?: string;
-  onSubmit: (courseId: string, content?: string) => Promise<void>;
+  onSubmit: (courseId: string, content?: string, term?: string, year?: string) => Promise<void>;
   onCancel?: () => void;
 }
 
@@ -30,6 +30,8 @@ export const AddSuggestionForm: React.FC<AddSuggestionFormProps> = ({
 }) => {
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [content, setContent] = useState('');
+  const [term, setTerm] = useState('');
+  const [year, setYear] = useState('');
   const [courses, setCourses] = useState<Course[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingCourses, setIsLoadingCourses] = useState(true);
@@ -90,11 +92,18 @@ export const AddSuggestionForm: React.FC<AddSuggestionFormProps> = ({
     try {
       setIsSubmitting(true);
       setError(null);
-      await onSubmit(selectedCourseId, trimmedContent || undefined);
+      await onSubmit(
+        selectedCourseId,
+        trimmedContent || undefined,
+        term || undefined,
+        year || undefined
+      );
 
       // Clear form on success
       setSelectedCourseId('');
       setContent('');
+      setTerm('');
+      setYear('');
     } catch (err) {
       console.error('AddSuggestionForm error:', err);
 
@@ -120,6 +129,8 @@ export const AddSuggestionForm: React.FC<AddSuggestionFormProps> = ({
   const handleCancel = () => {
     setSelectedCourseId('');
     setContent('');
+    setTerm('');
+    setYear('');
     setError(null);
     onCancel?.();
   };
@@ -163,6 +174,51 @@ export const AddSuggestionForm: React.FC<AddSuggestionFormProps> = ({
                 Selected: {selectedCourse.course_code} {selectedCourse.course_number} - {selectedCourse.title}
               </p>
             )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="term-select">
+                Suggested Term (Optional)
+              </Label>
+              <Select
+                value={term}
+                onValueChange={setTerm}
+                disabled={isSubmitting}
+              >
+                <SelectTrigger id="term-select">
+                  <SelectValue placeholder="Select term" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Spring">Spring</SelectItem>
+                  <SelectItem value="Summer">Summer</SelectItem>
+                  <SelectItem value="Fall">Fall</SelectItem>
+                  <SelectItem value="Winter">Winter</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="year-input">
+                Suggested Year (Optional)
+              </Label>
+              <Select
+                value={year}
+                onValueChange={setYear}
+                disabled={isSubmitting}
+              >
+                <SelectTrigger id="year-input">
+                  <SelectValue placeholder="Select year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() + i).map(y => (
+                    <SelectItem key={y} value={y.toString()}>
+                      {y}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="space-y-2">
