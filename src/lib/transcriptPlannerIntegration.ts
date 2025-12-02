@@ -139,6 +139,22 @@ export async function autoPopulatePlannerFromTranscript(userId: string, planId: 
           continue;
         }
 
+        // Check if course is already in plan
+        const { data: existingCourse } = await supabase
+          .from('plan_courses')
+          .select('id')
+          .eq('plan_id', planId)
+          .eq('course_id', courseId)
+          .eq('term', term)
+          .eq('year', year)
+          .maybeSingle();
+
+        if (existingCourse) {
+          console.log(`Skipping ${courseCode} - already in plan for ${term} ${year}`);
+          skipped++;
+          continue;
+        }
+
         // Check if already in plan
         if (existingCourseIds.has(courseId)) {
           skipped++;
@@ -163,16 +179,30 @@ export async function autoPopulatePlannerFromTranscript(userId: string, planId: 
         );
         const position = coursesInTerm.length;
 
+        // Check max position in term
+        const { data: maxPositionData } = await supabase
+          .from('plan_courses')
+          .select('position')
+          .eq('plan_id', planId)
+          .eq('term', term)
+          .eq('year', year)
+          .order('position', { ascending: false })
+          .limit(1)
+          .single();
+
+        const maxPosition = maxPositionData?.position || 0;
+
         // Add to plan (without is_completed - we'll check dynamically for styling)
         const { error: insertError } = await supabase
           .from('plan_courses')
           .insert({
             plan_id: planId,
             course_id: courseId,
-            term: term,
-            year: year,
+            term,
+            year,
             term_order: termOrder,
-            position: position
+            position: maxPosition + 1,
+            status: 'draft'
           });
 
         if (insertError) {

@@ -124,6 +124,9 @@ export const ChatbotWidget = () => {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatPanelRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 360, height: 600 });
+  const [isResizing, setIsResizing] = useState(false);
 
   // Load messages from localStorage on mount
   useEffect(() => {
@@ -184,7 +187,10 @@ export const ChatbotWidget = () => {
       const userMajor = await getCurrentUserMajor();
 
       // Get completed courses from transcript (for progress-aware recommendations)
-      const completedCourses = await getCompletedCoursesFromTranscript();
+      const completedCourses = await getCompletedCoursesFromTranscript().catch(err => {
+        console.error('Failed to fetch completed courses:', err);
+        return [];
+      });
       if (completedCourses.length > 0) {
         const completedContext = buildCompletedCoursesContext(completedCourses);
         contextParts.push(completedContext);
@@ -494,12 +500,51 @@ COURSE PLANNER ACTIONS:
   };
 
   const handleMinimize = () => {
-    setIsMinimized(true);
+    setIsMinimized(!isMinimized);
   };
 
   const handleClose = () => {
     setIsOpen(false);
     setIsMinimized(false);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent, direction: string) => {
+    e.preventDefault();
+    setIsResizing(true);
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = dimensions.width;
+    const startHeight = dimensions.height;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      let newWidth = startWidth;
+      let newHeight = startHeight;
+
+      
+      if (direction.includes('left')) {
+        newWidth = Math.max(320, Math.min(800, startWidth + (startX - moveEvent.clientX)));
+      }
+      if (direction.includes('right')) {
+        newWidth = Math.max(320, Math.min(800, startWidth + (moveEvent.clientX - startX)));
+      }
+      if (direction.includes('top')) {
+        newHeight = Math.max(400, Math.min(window.innerHeight * 0.9, startHeight + (startY - moveEvent.clientY)));
+      }
+      if (direction.includes('bottom')) {
+        newHeight = Math.max(400, Math.min(window.innerHeight * 0.9, startHeight + (moveEvent.clientY - startY)));
+      }
+
+      setDimensions({ width: newWidth, height: newHeight });
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
   };
 
   return (
@@ -532,19 +577,67 @@ COURSE PLANNER ACTIONS:
       {/* Chat Panel */}
       {isOpen && (
         <div
+          ref={chatPanelRef}
           className={cn(
             'fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-[9999]',
-            'w-[400px] max-w-[calc(100vw-2rem)] sm:max-w-[400px]',
-            isMinimized ? 'h-auto' : 'h-[75vh] max-h-[700px] min-h-[500px]',
-            'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700',
-            'rounded-2xl',
+            'bg-background border border-border rounded-lg',
             'shadow-2xl',
             'flex flex-col',
-            'transition-all duration-300',
+            isMinimized ? '' : 'transition-all duration-200',
             'backdrop-blur-xl',
             'overflow-hidden'
           )}
+          style={
+            isMinimized
+              ? { width: `${dimensions.width}px`, height: 'auto' }
+              : { width: `${dimensions.width}px`, height: `${dimensions.height}px` }
+          }
         >
+          {/* Resize Handles */}
+          {!isMinimized && (
+            <>
+              {/* Top-left corner */}
+              <div
+                className="absolute top-0 left-0 w-4 h-4 cursor-nwse-resize z-10"
+                onMouseDown={(e) => handleMouseDown(e, 'top-left')}
+              />
+              {/* Top-right corner */}
+              <div
+                className="absolute top-0 right-0 w-4 h-4 cursor-nesw-resize z-10"
+                onMouseDown={(e) => handleMouseDown(e, 'top-right')}
+              />
+              {/* Bottom-left corner */}
+              <div
+                className="absolute bottom-0 left-0 w-4 h-4 cursor-nesw-resize z-10"
+                onMouseDown={(e) => handleMouseDown(e, 'bottom-left')}
+              />
+              {/* Bottom-right corner */}
+              <div
+                className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-10"
+                onMouseDown={(e) => handleMouseDown(e, 'bottom-right')}
+              />
+              {/* Top edge */}
+              <div
+                className="absolute top-0 left-4 right-4 h-1 cursor-ns-resize z-10"
+                onMouseDown={(e) => handleMouseDown(e, 'top')}
+              />
+              {/* Bottom edge */}
+              <div
+                className="absolute bottom-0 left-4 right-4 h-1 cursor-ns-resize z-10"
+                onMouseDown={(e) => handleMouseDown(e, 'bottom')}
+              />
+              {/* Left edge */}
+              <div
+                className="absolute left-0 top-4 bottom-4 w-1 cursor-ew-resize z-10"
+                onMouseDown={(e) => handleMouseDown(e, 'left')}
+              />
+              {/* Right edge */}
+              <div
+                className="absolute right-0 top-4 bottom-4 w-1 cursor-ew-resize z-10"
+                onMouseDown={(e) => handleMouseDown(e, 'right')}
+              />
+            </>
+          )}
           {/* Header */}
           <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-800">
             <div className="flex items-center gap-3">
