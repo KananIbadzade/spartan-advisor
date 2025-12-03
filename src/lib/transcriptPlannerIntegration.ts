@@ -129,6 +129,15 @@ export async function autoPopulatePlannerFromTranscript(userId: string, planId: 
 
     for (const transcriptCourse of transcriptCourses) {
       try {
+        // Parse semester FIRST (move this to the top of the loop)
+        const { term, year } = parseSemester(transcriptCourse.semester);
+        if (!term || !year) {
+          skipped++;
+          errors.push(`Could not parse semester for: ${transcriptCourse.code}`);
+          console.warn(`Skipping ${transcriptCourse.code} - no semester info`);
+          continue;
+        }
+
         // Find course ID from database
         const courseId = await findCourseId(transcriptCourse.code);
 
@@ -139,22 +148,6 @@ export async function autoPopulatePlannerFromTranscript(userId: string, planId: 
           continue;
         }
 
-        // Check if course is already in plan
-        const { data: existingCourse } = await supabase
-          .from('plan_courses')
-          .select('id')
-          .eq('plan_id', planId)
-          .eq('course_id', courseId)
-          .eq('term', term)
-          .eq('year', year)
-          .maybeSingle();
-
-        if (existingCourse) {
-          console.log(`Skipping ${courseCode} - already in plan for ${term} ${year}`);
-          skipped++;
-          continue;
-        }
-
         // Check if already in plan
         if (existingCourseIds.has(courseId)) {
           skipped++;
@@ -162,22 +155,8 @@ export async function autoPopulatePlannerFromTranscript(userId: string, planId: 
           continue;
         }
 
-        // Parse semester
-        const { term, year } = parseSemester(transcriptCourse.semester);
-        if (!term || !year) {
-          skipped++;
-          errors.push(`Could not parse semester for: ${transcriptCourse.code}`);
-          continue;
-        }
-
         // Calculate term order and position
         const termOrder = getTermOrder(term, year);
-
-        // Get courses in same term to calculate position
-        const coursesInTerm = (existingPlanCourses || []).filter(
-          pc => pc.term === term && pc.year === year
-        );
-        const position = coursesInTerm.length;
 
         // Check max position in term
         const { data: maxPositionData } = await supabase
@@ -192,7 +171,7 @@ export async function autoPopulatePlannerFromTranscript(userId: string, planId: 
 
         const maxPosition = maxPositionData?.position || 0;
 
-        // Add to plan (without is_completed - we'll check dynamically for styling)
+        // Add to plan
         const { error: insertError } = await supabase
           .from('plan_courses')
           .insert({
