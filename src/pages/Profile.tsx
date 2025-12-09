@@ -27,13 +27,8 @@ const baseProfileSchema = z.object({
 });
 
 // Student-specific fields live only on student profiles
+// student_id is intentionally not editable by users — it's shown read-only in the profile UI
 const studentFieldsSchema = z.object({
-  student_id: z.string()
-    .trim()
-    .max(20, 'Student ID must be less than 20 characters')
-    .regex(/^[0-9]*$/, 'Student ID must contain only numbers')
-    .optional()
-    .or(z.literal('')),
   major: z.string()
     .trim()
     .max(100, 'Major must be less than 100 characters')
@@ -57,6 +52,9 @@ const Profile = () => {
     year_in_school: '',
     department: '',
   });
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null); // signed url for display
 
   useEffect(() => {
     loadProfile();
@@ -99,6 +97,23 @@ const Profile = () => {
           year_in_school: data.year_in_school || '',
           department: data.department || '',
         });
+        // If the profile has an avatar url path, generate a short-lived signed url for display
+        if (data.avatar_url) {
+          try {
+            const { data: signed, error: sError } = await supabase.storage
+              .from('avatars')
+              .createSignedUrl(data.avatar_url, 60 * 60);
+
+            if (!sError && signed?.signedUrl) {
+              setAvatarUrl(signed.signedUrl);
+            } else if (sError) {
+              // log so admins/devs can debug why the signed URL failed
+              console.warn('createSignedUrl failed for avatar:', sError.message || sError);
+            }
+          } catch (e) {
+            console.warn('Error creating signed url for avatar', e);
+          }
+        }
       }
     } catch (error) {
       console.error('Error loading profile:', error);
@@ -108,7 +123,6 @@ const Profile = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user found');
@@ -121,34 +135,47 @@ const Profile = () => {
 
       const validatedData = schema.parse(profile);
 
+      // Ensure student_id is not updated by clients — remove it if present
+      // (profile object still keeps student_id for display but we won't send it)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { student_id, ...updateData } = validatedData as any;
+
       const { error } = await supabase
         .from('profiles')
-        .update(validatedData)
+        .update(updateData)
         .eq('id', user.id);
 
       if (error) throw error;
 
       toast({
-        title: "Success",
-        description: "Your profile has been updated",
+        title: 'Success',
+        description: 'Your profile has been updated',
       });
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         toast({
-          title: "Validation Error",
+          title: 'Validation Error',
           description: error.errors[0].message,
-          variant: "destructive",
+          variant: 'destructive',
         });
       } else {
         toast({
-          title: "Error",
+          title: 'Error',
           description: error.message,
-          variant: "destructive",
+          variant: 'destructive',
         });
       }
     } finally {
       setLoading(false);
     }
+  };
+
+  const sanitizeName = (name: string) => {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
   };
 
   const handleDeleteAccount = async () => {
@@ -172,8 +199,8 @@ const Profile = () => {
       if (error) throw error;
 
       toast({
-        title: "Account Deleted",
-        description: "Your account has been permanently deleted.",
+        title: 'Account Deleted',
+        description: 'Your account has been permanently deleted.',
       });
       
       // Sign out and redirect
@@ -181,13 +208,113 @@ const Profile = () => {
       navigate('/auth');
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: 'Error',
         description: error.message || 'Failed to delete account',
-        variant: "destructive",
+        variant: 'destructive',
       });
       setLoading(false);
     }
   };
+
+  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] || null;
+    if (!f) return;
+    // Validate image size/type
+    const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!allowed.includes(f.type)) {
+      toast({ title: 'Invalid file', description: 'Please upload a PNG/JPEG/WebP image.', variant: 'destructive' });
+      return;
+    }
+
+    if (f.size > 2 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Avatar must be < 2MB', variant: 'destructive' });
+      return;
+    }
+
+    setAvatarFile(f);
+    setAvatarPreviewUrl(URL.createObjectURL(f));
+  };
+
+  const handleUploadAvatar = async () => {
+    if (!avatarFile) return;
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // Get existing avatar (we will remove it AFTER successful update)
+      const { data: profileRow } = await supabase.from('profiles').select('avatar_url').eq('id', user.id).single();
+      const oldAvatarPath: string | null = profileRow?.avatar_url || null;
+
+      const originalBase = sanitizeName(avatarFile.name.replace(/\.[^.]+$/, ''));
+      const ext = (avatarFile.name.split('.').pop() || 'png').toLowerCase();
+      const fileName = `${user.id}/avatar_${Date.now()}_${originalBase}.${ext}`;
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, avatarFile, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // save path to profile in DB
+      const { error: dbErr } = await supabase.from('profiles').update({ avatar_url: fileName }).eq('id', user.id);
+      if (dbErr) {
+        // Cleanup newly uploaded file to avoid orphaned files
+        try {
+          await supabase.storage.from('avatars').remove([fileName]);
+        } catch (cleanupErr) {
+          console.warn('Failed to cleanup newly uploaded avatar after DB error', cleanupErr);
+        }
+        throw dbErr;
+      }
+
+      // If we had an old avatar, delete it now (best-effort)
+      if (oldAvatarPath && oldAvatarPath !== fileName) {
+        try {
+          await supabase.storage.from('avatars').remove([oldAvatarPath]);
+        } catch (e) {
+          console.warn('Failed to remove old avatar (non-blocking):', e);
+        }
+      }
+
+      // get signed url for display
+      const { data: signed, error: sError } = await supabase.storage.from('avatars').createSignedUrl(fileName, 60 * 60);
+      if (!sError && signed?.signedUrl) setAvatarUrl(signed.signedUrl);
+
+      setAvatarFile(null);
+      setAvatarPreviewUrl(null);
+
+      toast({ title: 'Avatar uploaded', description: 'Profile picture updated successfully' });
+    } catch (err: any) {
+      toast({ title: 'Error uploading avatar', description: err.message || String(err), variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    if (!window.confirm('Delete your profile photo?')) return;
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { data: profileRow } = await supabase.from('profiles').select('avatar_url').eq('id', user.id).single();
+      if (profileRow?.avatar_url) {
+        await supabase.storage.from('avatars').remove([profileRow.avatar_url]);
+      }
+
+      await supabase.from('profiles').update({ avatar_url: null }).eq('id', user.id);
+      setAvatarUrl(null);
+      toast({ title: 'Avatar removed', description: 'Profile photo deleted' });
+    } catch (err: any) {
+      toast({ title: 'Error removing avatar', description: err.message || String(err), variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  
 
   return (
     <div className="min-h-screen bg-background">
@@ -221,6 +348,32 @@ const Profile = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {/* Avatar upload */}
+            <div className="mb-6 flex items-center gap-4">
+              <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center overflow-hidden">
+                {avatarPreviewUrl ? (
+                  <img src={avatarPreviewUrl} alt="avatar preview" className="w-full h-full object-cover" />
+                ) : avatarUrl ? (
+                  <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="text-muted-foreground font-semibold">{(profile.first_name?.[0] || '') + (profile.last_name?.[0] || '')}</div>
+                )}
+              </div>
+              <div className="flex flex-col gap-2 flex-1">
+                <div className="flex items-center gap-2">
+                  <input id="avatar-file" type="file" accept="image/*" onChange={handleAvatarSelect} className="hidden" />
+                  <label htmlFor="avatar-file">
+                    <Button variant="outline" size="sm" asChild>
+                      <span className="cursor-pointer">Choose Photo</span>
+                    </Button>
+                  </label>
+                  <Button size="sm" onClick={handleUploadAvatar} disabled={!avatarFile || loading}>Upload</Button>
+                  <Button variant="ghost" size="sm" onClick={handleRemoveAvatar} disabled={!avatarUrl || loading}>Remove</Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Accepted: PNG, JPEG, WebP — max 2MB</p>
+              </div>
+            </div>
+
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -246,13 +399,11 @@ const Profile = () => {
               {role === 'student' && (
                 <>
                   <div className="space-y-2">
-                    <Label htmlFor="student_id">Student ID</Label>
-                    <Input
-                      id="student_id"
-                      placeholder="e.g., 012345678"
-                      value={profile.student_id}
-                      onChange={(e) => setProfile({ ...profile, student_id: e.target.value })}
-                    />
+                    <Label>Student ID</Label>
+                    <div className="px-3 py-2 rounded-md bg-muted/50 border border-muted-foreground/20 text-sm text-muted-foreground">
+                      {profile.student_id || 'Not set'}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">Student ID cannot be changed through the profile editor. Contact an administrator if it needs updating.</p>
                   </div>
 
                   <div className="space-y-2">
@@ -307,15 +458,17 @@ const Profile = () => {
                 </>
               )}
 
-              <div className="space-y-2">
-                <Label htmlFor="department">Department</Label>
-                <Input
-                  id="department"
-                  placeholder="e.g., College of Engineering"
-                  value={profile.department}
-                  onChange={(e) => setProfile({ ...profile, department: e.target.value })}
-                />
-              </div>
+              {(role === 'advisor' || role === 'admin') && (
+                <div className="space-y-2">
+                  <Label htmlFor="department">Department</Label>
+                  <Input
+                    id="department"
+                    placeholder="e.g., College of Engineering"
+                    value={profile.department}
+                    onChange={(e) => setProfile({ ...profile, department: e.target.value })}
+                  />
+                </div>
+              )}
 
               <div className="flex gap-4">
                 <Button type="submit" disabled={loading} className="flex-1">
