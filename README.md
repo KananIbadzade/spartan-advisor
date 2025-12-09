@@ -1,107 +1,224 @@
-# SpartanAdvisor
+# SJSU MyPlanner (SpartanAdvisor)
 
-A comprehensive academic planning and advising platform for SJSU students.
+**Your academic planning companion for SJSU students and advisors.**
 
-## Project Overview
+Plan courses, upload transcripts, get AI-powered recommendations, and connect with your advisor—all in one place.
 
-SpartanAdvisor is designed to help students plan their academic journey, connect with advisors, and manage their course schedules effectively.
+---
 
-## Technologies Used
+## What is This?
 
-This project is built with:
+SJSU MyPlanner helps students map out their degree journey and advisors guide them along the way. Think of it as your personalized academic GPS.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-- Supabase
-- React Router
+**For Students:**
 
-## Getting Started
+- Build and visualize your course plan semester by semester
+- Upload your transcript and auto-import completed classes
+- Get course suggestions based on your progress
+- Chat with your assigned advisor about your plan
+
+**For Advisors:**
+
+- Review and approve student course plans
+- Leave notes and suggestions for students
+- Track student progress across semesters
+
+**For Admins:**
+
+- Manage users, approve advisor accounts, and oversee the platform
+
+---
+
+## 🛠️ Tech Stack
+
+built this with modern, battle-tested tools:
+
+- **Frontend:** React + TypeScript + Vite (fast dev server, quick builds)
+- **UI:** Tailwind CSS + shadcn-ui (clean, accessible components)
+- **Backend:** Supabase (PostgreSQL database + authentication + file storage)
+- **Routing:** React Router v6
+- **AI:** OpenAI API (for the chatbot assistant)
+
+**Why these tools?**  
+They're fast, well-documented, and scale effortlessly. Supabase handles auth, database, and storage so we can focus on features instead of infrastructure.
+
+---
+
+## Quick Start
 
 ### Prerequisites
 
-- Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+- **Node.js 18+** and **npm** installed ([install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating))
+- A **Supabase account** (free tier works fine: [supabase.com](https://supabase.com))
+- (Optional) An **OpenAI API key** if you want the chatbot to work
 
 ### Installation
-- NOTE: before running the server an environment must be created, please check out env.example for reference on how to create this
 
-```sh
-# Clone the repository
-git clone <YOUR_GIT_URL>
+1. **Clone the repo:**
 
-# Navigate to the project directory
-cd spartanadvisor
+   ```sh
+   git clone <YOUR_GIT_URL>
+   cd spartanadvisor
+   ```
 
-# Install dependencies
-npm install
+2. **Install dependencies:**
 
+   ```sh
+   npm install
+   ```
 
-# Start the development server
-npm run dev
+3. **Set up your environment:**
+
+   - Copy `env.example` to `.env`:
+     ```sh
+     cp env.example .env
+     ```
+   - Open `.env` and fill in your Supabase credentials:
+     ```dotenv
+     VITE_SUPABASE_URL=https://your-project-id.supabase.co
+     VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key-here
+     VITE_OPENAI_API_KEY=sk-proj-your-openai-key (optional)
+     ```
+   - Get these from your [Supabase project settings](https://app.supabase.com) → **API** section.
+
+4. **Run database migrations:**
+
+   - In your Supabase dashboard, go to **SQL Editor** and run all the migration files in `supabase/migrations/` in order (or use the Supabase CLI if you have it installed).
+
+5. **Start the dev server:**
+
+   ```sh
+   npm run dev
+   ```
+
+   - Open [http://localhost:8080](http://localhost:8080) (default Vite port in this project)
+
+6. **Create an account:**
+   - Sign up with an `@sjsu.edu` email (email verification is optional—you can disable it in Supabase → **Auth** → **Providers** → **Email** → turn off "Confirm email")
+   - Pick your role (Student or Advisor)
+   - Start planning!
+
+---
+
+---
+
+## Project Structure
+
+```
+spartanadvisor/
+├── src/
+│   ├── pages/          # Main app pages (Auth, Dashboard, Planner, etc.)
+│   ├── components/     # Reusable UI components
+│   ├── lib/            # Utilities, API calls, services
+│   ├── integrations/   # Supabase client + generated types
+│   └── hooks/          # Custom React hooks
+├── supabase/
+│   ├── migrations/     # Database schema + migrations
+│   └── functions/      # Edge functions (serverless backend)
+├── public/             # Static assets
+└── .env                # Your secrets (DO NOT commit this!)
 ```
 
-## Features
+**Import alias:** Use `@/` instead of `../../` everywhere (e.g., `import { supabase } from "@/integrations/supabase/client"`).
 
-- User authentication and role management
-- Academic planning and course scheduling
-- Advisor-student communication
-- Transcript management
-- Admin dashboard for system management
+---
 
-### Admin onboarding / walkthrough
-
-New admin users will now see a short step-by-step walkthrough when they visit the Admin Dashboard for the first time. The walkthrough can be dismissed, and there is a "Don't show this again" option which persists in localStorage. Admins can re-open the walkthrough using the Help button in the Admin header.
-
-### Profile pictures / avatars
-
-Admins and advisors can now see user profile pictures (avatars) across the app. The upload uses Supabase Storage and stores the object path in the `profiles.avatar_url` column. Key points:
-
-- A migration was added to the project: `supabase/migrations/20251201120000_add_avatar_url_to_profiles.sql` (adds `avatar_url` column to `profiles`).
-- Uploads are stored in the `avatars` bucket in Supabase Storage (private bucket recommended). The app stores the object path (e.g. `user-id/avatar_...png`) in `profiles.avatar_url` and uses short-lived signed URLs for display.
-- You'll need to create a private storage bucket named `avatars` in your Supabase project (UI or CLI). For best security:
-	- Make the bucket private so files are not publicly accessible
-	- Add a storage policy so authenticated users can upload/remove files only under their own folder prefix (e.g. `user.id/*`)
-
-Quick commands (Supabase CLI) to create the bucket (example):
-
-```bash
-# create a private bucket named avatars
-supabase storage bucket create avatars --public false
-```
-
-To support uploading and signed URLs you should ensure the app's service role (server side) or RLS policies support updating `profiles.avatar_url` and that storage policies allow the user to manage files only in their own path.
-
-Testing tips:
-- During development you can clear/force the avatar by removing `avatar_url` from a profile and deleting the file in the storage bucket.
-- The app uses short-lived signed URLs (1 hour) to display avatars; if you need longer or shorter times adjust the createSignedUrl expiration where used.
-
-## Development
+## 🔧 Development Commands
 
 ```sh
-# Start development server
+# Start dev server (runs on port 8080)
 npm run dev
 
 # Build for production
 npm run build
 
-# Preview production build
+# Preview production build locally
 npm run preview
 
-# Run linting
+# Lint your code
 npm run lint
 ```
 
-## Contributing
+---
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Commit your changes
-5. Push to the branch
-6. Create a Pull Request
+## 🎓 How It Works
 
-## License
+### The Flow (Student Perspective)
 
-This project is licensed under the MIT License.
+1. **Sign up** with your SJSU email → pick "Student" role
+2. **Upload your transcript** (PDF) → system parses it and extracts completed courses
+3. **Go to Planner** → click "Import from Transcript" to auto-add your classes
+4. **Drag courses** into future semesters to build your plan
+5. **(Coming soon)** Submit your plan → your advisor reviews and approves it
+6. **Get suggestions** from your advisor or the AI chatbot
+
+### The Flow (Advisor Perspective)
+
+1. **Sign up** → pick "Advisor" role → wait for admin approval
+2. **View assigned students** and their course plans
+3. **Leave notes/suggestions** on plans
+4. **(Coming soon)** Approve or reject submitted plans with feedback
+
+### The Flow (Admin Perspective)
+
+1. **Approve advisor requests** from the Pending Advisors page
+2. **Manage users** (view roles, delete accounts, etc.)
+3. **Monitor the platform** from the Admin Dashboard
+
+---
+
+## 🧪 Testing Tips
+
+- **Disable email verification** for faster testing: Supabase Dashboard → **Auth** → **Providers** → **Email** → turn off "Confirm email"
+- **Create test accounts** with different roles to see the full flow
+- **Check browser console** for helpful debug logs (especially in the Planner and Transcript pages)
+- **Use Supabase SQL Editor** to inspect/modify data directly if needed
+
+---
+
+## 📦 Supabase Setup Checklist
+
+Make sure you've done these in your Supabase project:
+
+- [ ] Run all migrations from `supabase/migrations/` (or use Supabase CLI)
+- [ ] Create a **private storage bucket** named `transcripts` (for transcript PDFs)
+- [ ] Create a **private storage bucket** named `avatars` (for profile pictures)
+- [ ] Add **storage policies** so users can only access their own files:
+  ```sql
+  -- Example: Allow users to upload/view their own transcripts
+  CREATE POLICY "Users can upload own transcripts"
+  ON storage.objects FOR INSERT
+  TO authenticated
+  USING (bucket_id = 'transcripts' AND auth.uid()::text = (storage.foldername(name))[1]);
+  ```
+- [ ] (Optional) Seed the `courses` and `departments` tables with real SJSU data for better testing
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Here's how:
+
+1. **Fork** the repo
+2. **Create a feature branch:** `git checkout -b feature/your-feature-name`
+3. **Make your changes** and commit: `git commit -m "Add cool feature"`
+4. **Push** to your branch: `git push origin feature/your-feature-name`
+5. **Open a Pull Request** on GitHub
+
+**Code Style:** We use ESLint + Prettier. Run `npm run lint` before committing.
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License**. Feel free to use it, modify it, and share it!
+
+---
+
+## 🆘 Need Help?
+
+- **Bug?** Open an issue on GitHub
+- **Question?** Check the code comments or ask in Discussions
+- **Stuck on Supabase?** Check their [docs](https://supabase.com/docs) or our migration files for examples
+
+**Happy planning! 🎉**
