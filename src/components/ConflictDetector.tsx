@@ -34,17 +34,37 @@ export interface ConflictInfo {
 export const timeUtils = {
   // Convert time string to minutes (e.g., "10:30 AM" -> 630)
   timeToMinutes(timeStr: string): number {
-    const [time, period] = timeStr.split(' ');
-    const [hours, minutes] = time.split(':').map(Number);
-    let totalMinutes = hours * 60 + (minutes || 0);
-
-    if (period?.toUpperCase() === 'PM' && hours !== 12) {
-      totalMinutes += 12 * 60;
-    } else if (period?.toUpperCase() === 'AM' && hours === 12) {
-      totalMinutes = minutes || 0;
+    // Try 12-hour format first (e.g., "2:30 PM")
+    let match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+    
+    if (match) {
+      const [, hours, minutes, period] = match;
+      let hour = parseInt(hours);
+      const min = parseInt(minutes);
+      
+      if (period.toUpperCase() === 'PM' && hour !== 12) {
+        hour += 12;
+      } else if (period.toUpperCase() === 'AM' && hour === 12) {
+        hour = 0;
+      }
+      
+      return hour * 60 + min;
     }
-
-    return totalMinutes;
+    
+    // Try 24-hour format (e.g., "14:30")
+    match = timeStr.match(/^(\d+):(\d+)$/);
+    if (match) {
+      const hour = parseInt(match[1]);
+      const min = parseInt(match[2]);
+      
+      // Validate time
+      if (hour >= 0 && hour < 24 && min >= 0 && min < 60) {
+        return hour * 60 + min;
+      }
+    }
+    
+    console.warn(`Failed to parse time: ${timeStr}`);
+    return 0; // Default to midnight
   },
 
   // Check if two time ranges overlap
